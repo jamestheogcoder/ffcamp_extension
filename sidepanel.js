@@ -401,6 +401,21 @@ function clickCheckAnswerButton() {
   return { clicked: true, text: target.textContent.trim().slice(0, 60) };
 }
 
+/* injected into the page; must be self-contained */
+function probeAndClickSubmitNext() {
+  const re = /submit\s*and\s*go\s*to\s*next|go\s*to\s*next\s*challenge/i;
+  const buttons = [
+    ...document.querySelectorAll('button[type="button"], button, [role="button"]')
+  ].filter((b) => b.getClientRects().length > 0);
+  const t = buttons.find(
+    (b) => re.test(b.textContent.trim()) && b.getAttribute('aria-disabled') !== 'true'
+  );
+  if (!t) return false;
+  if (t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  t.click();
+  return true;
+}
+
 async function pressNextOnPage() {
   setBusy($('btn-next'), true);
   try {
@@ -410,14 +425,41 @@ async function pressNextOnPage() {
       target: { tabId: tab.id },
       func: clickCheckAnswerButton
     });
-    if (result?.clicked) {
-      showStatus($('mcq-status'), 'ok', `Clicked "${result.text}" on the page.`);
+    if (!result?.clicked) {
+      // no check button - maybe page already shows the submit-next button
+      const [{ result: direct }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: probeAndClickSubmitNext
+      });
+      if (direct) {
+        showStatus($('mcq-status'), 'ok', 'Advanced to next challenge.');
+      } else {
+        showStatus($('mcq-status'), 'err', 'No "Check your answer" button found on this page.');
+      }
+      return;
+    }
+
+    showStatus(
+      $('mcq-status'),
+      null,
+      'Checked answer - waiting for "Submit and go to next challenge"...'
+    );
+
+    const deadline = Date.now() + 12000;
+    let advanced = false;
+    while (Date.now() < deadline && !advanced) {
+      await new Promise((r) => setTimeout(r, 700));
+      const [{ result: hit }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: probeAndClickSubmitNext
+      });
+      advanced = !!hit;
+    }
+
+    if (advanced) {
+      showStatus($('mcq-status'), 'ok', 'Checked answer + moved to next challenge.');
     } else {
-      showStatus(
-        $('mcq-status'),
-        'err',
-        'No "Check your answer" button found on this page.'
-      );
+      showStatus($('mcq-status'), 'ok', `Clicked "${result.text}" on the page.`);
     }
   } catch (err) {
     showStatus($('mcq-status'), 'err', err.message);
