@@ -390,53 +390,60 @@ async function openFile(path) {
 }
 
 let EDITING = false;
-function renderView() {
-  const md = $("md");
-  $("actions").innerHTML = "";
-
-  if (EDITING) {
-    setCrumb(CURRENT.path + " (editing)");
-    md.hidden = true;
-    cleanupEditor();
-    let bar = document.createElement("div"); bar.id = "editor-bar";
-    let wrap = document.createElement("div"); wrap.id = "editor-wrap";
-    bar.innerHTML =
-      '<button class="tbtn" id="e-cancel">Cancel</button>' +
-      '<button class="tbtn primary" id="e-save">💾 Save (Ctrl+S)</button>';
-    wrap.innerHTML = '<textarea id="editor" spellcheck="false"></textarea>';
-    $("view").appendChild(bar); $("view").appendChild(wrap);
-    $("editor").value = CURRENT.raw;
-    $("e-save").onclick = saveEditing;
-    $("e-cancel").onclick = () => {
-      EDITING = false;
-      cleanupEditor();
-      if (CURRENT.isNew) showWelcome(); else renderView();
-    };
-    setTimeout(() => $("editor").focus(), 30);
-    return;
+  /* split into Original Content box + AI Summary box
+     (new format uses <!--FFCAMP-SPLIT-->; legacy notes are detected via
+     the analysis heading or a --- rule) */
+  function splitVariations(raw) {
+    const idx = raw.indexOf(SPLIT);
+    if (idx >= 0)
+      return [raw.slice(0, idx), raw.slice(idx + SPLIT.length)];
+    const aiIdx = raw.search(/^## What the topic is explaining/m);
+    if (aiIdx > 0) return [raw.slice(0, aiIdx), raw.slice(aiIdx)];
+    const hr = raw.indexOf("\n---\n");
+    if (hr > 0) return [raw.slice(0, hr), raw.slice(hr + 5)];
+    return [raw, null];
   }
 
-  cleanupEditor();
-  md.hidden = false;
-  md.className = "";
-  setCrumb(CURRENT?.path);
+  function renderView() {
+    const md = $("md");
+    $("actions").innerHTML = "";
 
-  /* split into Original Content slab + AI Summary slab */
-  const idx = CURRENT.raw.indexOf(SPLIT);
-  const rawA = idx >= 0 ? CURRENT.raw.slice(0, idx) : CURRENT.raw;
-  const rawB = idx >= 0 ? CURRENT.raw.slice(idx + SPLIT.length) : null;
+    if (EDITING) {
+      setCrumb(CURRENT.path + " (editing)");
+      md.hidden = true;
+      cleanupEditor();
+      let bar = document.createElement("div"); bar.id = "editor-bar";
+      let wrap = document.createElement("div"); wrap.id = "editor-wrap";
+      bar.innerHTML =
+        '<button class="tbtn" id="e-cancel">Cancel</button>' +
+        '<button class="tbtn primary" id="e-save">💾 Save (Ctrl+S)</button>';
+      wrap.innerHTML = '<textarea id="editor" spellcheck="false"></textarea>';
+      $("view").appendChild(bar); $("view").appendChild(wrap);
+      $("editor").value = CURRENT.raw;
+      $("e-save").onclick = saveEditing;
+      $("e-cancel").onclick = () => {
+        EDITING = false;
+        cleanupEditor();
+        if (CURRENT.isNew) showWelcome(); else renderView();
+      };
+      setTimeout(() => $("editor").focus(), 30);
+      return;
+    }
 
-  const secA = `<section class="nb orig"><span class="nb-tag">Original Content · as scraped</span>${marked.parse(rawA)}</section>`;
-  const secB = rawB !== null
-    ? `<section class="nb summ"><span class="nb-tag">Study Analysis · by AI</span>${marked.parse(rawB)}</section>`
-    : "";
+    cleanupEditor();
+    md.hidden = false;
+    md.className = "";
+    setCrumb(CURRENT?.path);
 
-  md.innerHTML =
-    `<blockquote class="meta">${esc(CURRENT.path.split("/").pop())}</blockquote>` +
-    secA + secB +
-    '<button id="btn-edit" title="Edit this file">✏️</button>';
-  $("btn-edit").onclick = startEditing;
-}
+    const [rawA, rawB] = splitVariations(CURRENT.raw);
+
+    md.innerHTML =
+      `<blockquote class="meta">${esc(CURRENT.path.split("/").pop())}</blockquote>` +
+      `<section class="nb orig"><span class="nb-tag">Box 1 · Original Content · as scraped</span>${marked.parse(rawA || "*nothing scraped*")}</section>` +
+      `<section class="nb summ"><span class="nb-tag">Box 2 · Study Analysis · by AI</span>${marked.parse(rawB != null && rawB.trim() ? rawB : "_No AI section in this note._")}</section>` +
+      '<button id="btn-edit" title="Edit this file">✏️</button>';
+    $("btn-edit").onclick = startEditing;
+  }
 
 function cleanupEditor() {
   const b = $("editor-bar"), w = $("editor-wrap");
