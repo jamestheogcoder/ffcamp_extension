@@ -381,18 +381,6 @@
     return { filled: false, kind: "none" };
   };
 
-    // 4) CodeMirror 6
-    const cm = document.querySelector(".cm-content[contenteditable='true']");
-    if (cm) {
-      cm.focus();
-      document.execCommand("selectAll", false, null);
-      document.execCommand("insertText", false, code);
-      return { filled: true, kind: "codemirror" };
-    }
-
-    return { filled: false };
-  };
-
   window.__ffcampClickCheck = function () {
     const b = findCheckBtn();
     if (!b) return { clicked: false };
