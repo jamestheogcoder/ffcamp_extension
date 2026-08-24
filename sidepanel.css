@@ -58,6 +58,7 @@ main { padding: 12px; }
 .panel.active { display: block; }
 
 .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.hint.center { text-align: center; margin-top: 10px; }
 
 h3 {
   font-size: 12px;

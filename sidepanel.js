@@ -38,6 +38,16 @@ const MCQ_SYSTEM = [
   'No markdown fences, no extra text before or after the JSON.'
 ].join('\n');
 
+const MCQ_SYSTEM_AUTO = [
+  'You are an expert tutor answering multiple-choice questions scraped from a web page.',
+  'Each question starts with a [Q<number>] tag followed by lettered options A) B) C) ...',
+  'Reason silently, then respond ONLY with a valid JSON array, one object per question,',
+  'in the EXACT SAME ORDER as the input:',
+  '[{"question": "[Q0] ...", "answer": "B", "reasoning": "1-2 sentence justification"}]',
+  '"answer" MUST be the single capital letter of the best option.',
+  'No markdown fences, no extra text before or after the JSON.'
+].join('\n');
+
 /* ================================ state ================================= */
 
 let currentMarkdown = '';
@@ -286,7 +296,126 @@ function downloadSummary() {
   );
 }
 
-/* ================================= MCQ ================================== */
+/* ============================ MCQ ================================== */
+
+async function autoSolvePage() {
+  const resultsBox = $('mcq-results');
+  resultsBox.textContent = '';
+  hide($('mcq-status'));
+
+  setBusy($('btn-autosolve'), true);
+  try {
+    showStatus($('mcq-status'), null, 'Scanning page for MCQs...');
+
+    const tab = await getActiveTab();
+    if (!tab?.id) throw new Error('No active tab found.');
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js']
+    });
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.__ffcampMcqData ?? null
+    });
+
+    const qs = (result?.questions ?? []).filter((q) => q.options?.length >= 2);
+    if (!qs.length) {
+      throw new Error(
+        'No clickable MCQs detected on this page. Radio buttons, checkboxes, [role=radio] widgets or plain "1. ... A) ..." text are supported - or paste the questions below instead.'
+      );
+    }
+
+    showStatus($('mcq-status'), null, `Found ${qs.length} question(s). Asking AI...`);
+
+    const numbered = qs
+      .map((q) => {
+        const opts = q.options
+          .map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`)
+          .join('\n');
+        return `[Q${q.qid}] ${q.text}\n${opts}`;
+      })
+      .join('\n\n');
+
+    const raw = await askAI([
+      { role: 'system', content: MCQ_SYSTEM_AUTO },
+      { role: 'user', content: numbered }
+    ]);
+
+    const parsed = parseAnswers(raw);
+    if (!parsed) throw new Error(`AI returned unparsable output: ${raw.slice(0, 200)}`);
+
+    for (let i = 0; i < parsed.length; i++) resultsBox.appendChild(mcqCard(parsed[i]));
+
+    /* map answers -> clicks on the page */
+    const choices = [];
+    for (let i = 0; i < Math.min(parsed.length, qs.length); i++) {
+      const idx = letterToIndex(parsed[i]?.answer, qs[i].options);
+      if (idx >= 0) choices.push({ qid: qs[i].qid, choice: idx });
+    }
+
+    let clickInfo = null;
+    if (choices.length) {
+      showStatus($('mcq-status'), null, 'Clicking correct options on the page...');
+      const [{ result: clickRes }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: applyAnswersOnPage,
+        args: [choices]
+      });
+      clickInfo = clickRes;
+    }
+
+    showStatus(
+      $('mcq-status'),
+      'ok',
+      `Answered ${parsed.length}/${qs.length}` +
+        (clickInfo ? ` · clicked ${clickInfo.clicked} option(s) on the page` : ' · text-only page (no inputs to click)')
+    );
+  } catch (err) {
+    showStatus($('mcq-status'), 'err', err.message);
+  } finally {
+    setBusy($('btn-autosolve'), false);
+  }
+}
+
+/* injected into the page; must be self-contained */
+function applyAnswersOnPage(choices) {
+  let clicked = 0;
+  let missing = 0;
+  let first = null;
+  for (const a of choices) {
+    const target = document.querySelector(
+      `[data-ffcamp-q="${a.qid}"][data-ffcamp-c="${a.choice}"]`
+    );
+    if (!target) {
+      missing++;
+      continue;
+    }
+    try {
+      target.click();
+      clicked++;
+    } catch {
+      missing++;
+    }
+    const wrap = target.closest('label') || target.parentElement || target;
+    wrap.style.outline = '2px solid #22c55e';
+    wrap.style.borderRadius = '4px';
+    if (!first) first = target;
+  }
+  if (first && first.scrollIntoView) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return { clicked, missing };
+}
+
+function letterToIndex(answer, options) {
+  const s = String(answer ?? '').trim();
+  const m = /^\(?([A-H])\b/i.exec(s);
+  if (m) return m[1].toUpperCase().charCodeAt(0) - 65;
+  const norm = s.replace(/^\(?[A-H]\)?[\.\):]?\s*/i, '').toLowerCase();
+  const byText = options.findIndex(
+    (o) => o.toLowerCase() === norm || norm.includes(o.toLowerCase())
+  );
+  return byText;
+}
 
 async function solveMcq() {
   const input = $('mcq-input').value.trim();
@@ -434,6 +563,7 @@ $('btn-summarize').addEventListener('click', summarizePage);
 $('btn-github').addEventListener('click', saveSummaryToGithub);
 $('btn-download').addEventListener('click', downloadSummary);
 $('btn-solve').addEventListener('click', solveMcq);
+$('btn-autosolve').addEventListener('click', autoSolvePage);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-test').addEventListener('click', testConnections);
 

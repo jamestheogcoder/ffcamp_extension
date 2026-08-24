@@ -36,10 +36,12 @@
 
     <!-- ============ MCQ ============ -->
     <section id="tab-mcq" class="panel">
-      <p class="hint">
-        Paste one or more MCQs (question + options). The AI reasons and picks the
-        best option for each.
-      </p>
+      <div class="row">
+        <button id="btn-autosolve" class="btn primary wide">
+          Fetch MCQs from this page &amp; answer
+        </button>
+      </div>
+      <p class="hint center">— or paste questions below —</p>
       <textarea
         id="mcq-input"
         rows="8"
