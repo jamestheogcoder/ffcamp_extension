@@ -29,7 +29,12 @@
     return {
       title: document.title || location.hostname,
       url: location.href,
-      text: chunks.join("").replace(/\n{3,}/g, "\n\n").trim()
+      text: chunks
+        .join("")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/([a-zA-Z0-9\.\?!])\s+(?=[A-D]\)\s)/g, "$1\n") // break inline A) B) C) D) runs
+        .replace(/([a-zA-Z0-9\.\?!])\s+(?=\d+\.\s[A-Z])/g, "$1\n") // break glued numbered questions
+        .trim()
     };
   }
 
