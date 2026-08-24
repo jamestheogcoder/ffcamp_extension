@@ -244,13 +244,11 @@ async function summarizePage() {
 
     currentTitle = result.page.title;
 
-    /* Variation 1 - the ACTUAL scraped string, no AI */
-    const part1 =
-      '## Original Content\n\n' +
-      '```text\n' +
-      pageText +
-      '\n```' +
-      mcqsSection;
+    /* Variation 1 - the ACTUAL scraped string, no AI.
+       Headings demoted (+3 levels) so they nest under the document,
+       and NO code fence -> renders as real formatted content. */
+    const demoted = pageText.replace(/^(#{1,3})(\s)/gm, (_m, hashes, sp) => '#'.repeat(hashes.length + 3) + sp);
+    const part1 = '## Original Content\n\n' + demoted + mcqsSection;
 
     const sourceMsg = `TITLE: ${result.page.title}\nURL: ${result.page.url}\n\nCONTENT:\n${pageText}`;
 
@@ -266,7 +264,7 @@ async function summarizePage() {
     currentMarkdown =
       `# ${currentTitle}\n\n` +
       `> Source: ${result.page.url} · Saved ${new Date().toLocaleString()}\n\n` +
-      `${part1}\n\n---\n\n${part2}\n`;
+      `${part1}\n\n<!--FFCAMP-SPLIT-->\n\n${part2}\n`;
 
     const preview = $('md-preview');
     preview.textContent = currentMarkdown;

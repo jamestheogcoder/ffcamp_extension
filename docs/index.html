@@ -7,141 +7,174 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root {
-    --bg:#0f1420; --side:#121826; --bg2:#171e2e; --hover:#1d2740;
-    --border:#2a3550; --text:#e7ecf5; --muted:#93a0b8; --accent:#4e8df7;
-    --ok:#4ade80; --err:#f87171; --side-w:270px;
+    --paper:#f5f0e6; --ink:#111111; --side:#fffdf5;
+    --yellow:#ffd93d; --pink:#ff90b3; --lime:#b8f1a5; --blue:#9bd1ff; --orange:#ffab5e;
+    --muted:#555; --side-w:280px;
+    --bw:4px; --shadow:7px 7px 0 var(--ink); --shadow-sm:4px 4px 0 var(--ink);
   }
   * { box-sizing:border-box; margin:0; padding:0; }
   html,body { height:100%; }
-  body { font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); display:flex; overflow:hidden; }
+  body {
+    font:14.5px/1.55 "Archivo Black",system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-weight:600; background:var(--paper); color:var(--ink);
+    display:flex; overflow:hidden;
+  }
 
-  /* ---------- sidebar ---------- */
+  /* ================= sidebar ================= */
   #sidebar {
     width:var(--side-w); min-width:var(--side-w); background:var(--side);
-    border-right:1px solid var(--border); display:flex; flex-direction:column; height:100vh;
+    border-right:var(--bw) solid var(--ink); display:flex; flex-direction:column; height:100vh;
   }
   #side-head {
-    padding:12px 12px 8px; border-bottom:1px solid var(--border);
-    font-size:11px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted);
-    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 14px 10px; border-bottom:var(--bw) solid var(--ink);
+    font-size:12px; letter-spacing:1px; text-transform:uppercase;
+    display:flex; align-items:center; justify-content:space-between; background:var(--yellow);
   }
-  #tree { flex:1; overflow:auto; padding:6px 0; font-size:13px; }
-  #tree ul { list-style:none; padding-left:0; }
-  #tree ul ul { padding-left:14px; }
+  #tree { flex:1; overflow:auto; padding:8px 6px; font-size:13.5px; }
+  #tree ul { list-style:none; }
+  #tree ul ul { padding-left:15px; border-left:2px dashed var(--ink); margin-left:10px; }
   .row {
-    display:flex; align-items:center; gap:6px; padding:3px 10px; cursor:pointer;
-    white-space:nowrap; user-select:none; position:relative;
+    display:flex; align-items:center; gap:7px; padding:4px 8px; cursor:pointer;
+    white-space:nowrap; user-select:none; position:relative; border:2px solid transparent;
   }
-  .row:hover { background:var(--hover); }
-  .row.sel { background:#22304f; box-shadow:inset 2px 0 0 var(--accent); }
-  .row .chev { width:12px; text-align:center; color:var(--muted); font-size:10px; flex:none; }
+  .row:hover { background:var(--yellow); border:2px solid var(--ink); }
+  .row.sel { background:var(--pink); border:2px solid var(--ink); box-shadow:var(--shadow-sm); }
+  .row .chev { width:12px; text-align:center; font-size:10px; flex:none; }
   .row .ico { flex:none; }
-  .row .nm { overflow:hidden; text-overflow:ellipsis; }
+  .row .nm { overflow:hidden; text-overflow:ellipsis; font-weight:700; }
   .row .acts { margin-left:auto; display:none; gap:2px; }
   .row:hover .acts { display:flex; }
   .acts button {
-    background:none; border:none; color:var(--muted); cursor:pointer; font-size:11px;
-    padding:1px 4px; border-radius:4px;
+    background:var(--side); border:2px solid var(--ink); cursor:pointer; font-size:11px;
+    padding:1px 4px; box-shadow:2px 2px 0 var(--ink);
   }
-  .acts button:hover { color:var(--text); background:#2c3a5c; }
-  #side-foot {
-    border-top:1px solid var(--border); padding:8px; display:flex; gap:6px;
-  }
+  .acts button:active { transform:translate(2px,2px); box-shadow:none; }
+  #side-foot { border-top:var(--bw) solid var(--ink); padding:10px; display:flex; gap:8px; background:var(--side); }
   #side-foot button {
-    flex:1; background:var(--bg2); color:var(--text); border:1px solid var(--border);
-    border-radius:7px; padding:6px 4px; cursor:pointer; font-size:12px;
+    flex:1; cursor:pointer; font-family:inherit; font-weight:800; font-size:12px;
+    border:3px solid var(--ink); padding:8px 4px; box-shadow:var(--shadow-sm);
+    transition:transform .06s, box-shadow .06s;
   }
-  #side-foot button:hover { border-color:var(--accent); }
+  #b-newfile { background:var(--lime); }
+  #b-newdir { background:var(--blue); }
+  #b-token { flex:0 0 46px !important; background:var(--orange); }
+  #side-foot button:hover { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--ink); }
+  #side-foot button:active { transform:translate(3px,3px); box-shadow:none; }
 
-  /* ---------- main ---------- */
+  /* ================= main ================= */
   #main { flex:1; display:flex; flex-direction:column; height:100vh; min-width:0; }
   #topbar {
-    display:flex; align-items:center; gap:10px; padding:9px 16px;
-    border-bottom:1px solid var(--border); background:var(--side);
+    display:flex; align-items:center; gap:12px; padding:11px 18px;
+    border-bottom:var(--bw) solid var(--ink); background:var(--side);
   }
-  #burger { display:none; background:none; border:1px solid var(--border); color:var(--text); border-radius:7px; padding:4px 9px; cursor:pointer; font-size:14px; }
-  #crumb { flex:1; font-size:12.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #crumb b { color:var(--text); font-weight:600; }
+  #burger { display:none; background:var(--yellow); border:3px solid var(--ink); box-shadow:var(--shadow-sm); color:var(--ink); border-radius:0; padding:4px 10px; cursor:pointer; font-size:14px; font-family:inherit; font-weight:800; }
+  #crumb { flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; }
+  #crumb b { background:var(--ink); color:var(--yellow); padding:2px 8px; margin-right:4px; }
   .tbtn {
-    background:var(--bg2); color:var(--text); border:1px solid var(--border);
-    border-radius:7px; padding:5px 11px; cursor:pointer; font-size:12.5px; white-space:nowrap;
+    background:var(--side); color:var(--ink); border:3px solid var(--ink); border-radius:0;
+    padding:6px 13px; cursor:pointer; font-size:12.5px; white-space:nowrap; font-family:inherit;
+    font-weight:800; box-shadow:var(--shadow-sm); transition:transform .06s, box-shadow .06s;
   }
-  .tbtn:hover { border-color:var(--accent); }
-  .tbtn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .tbtn:hover { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--ink); }
+  .tbtn:active { transform:translate(3px,3px); box-shadow:none; }
+  .tbtn.primary { background:var(--lime); }
+  .tbtn.danger { background:var(--pink); }
 
   #view { flex:1; overflow:auto; }
-  .wrap { max-width:900px; margin:0 auto; padding:34px 30px 90px; }
 
   /* welcome */
-  .welcome h2 { margin-bottom:10px; } .welcome p { color:var(--muted); margin:8px 0; }
-  .welcome code { background:var(--bg2); border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:12.5px; }
+  .welcome h2 { font-size:24px; margin-bottom:14px; text-transform:uppercase; }
+  .welcome p { margin:10px 0; max-width:640px; }
+  .welcome code { background:var(--ink); color:var(--yellow); padding:2px 8px; font-size:12.5px; font-weight:800; }
 
-  /* markdown */
-  #md { max-width:900px; margin:0 auto; padding:34px 30px 90px; overflow-wrap:break-word; position:relative; }
-  #md.viewing h1,#md h1,#md h2,#md h3,#md h4 { margin:24px 0 10px; line-height:1.3; }
-  #md h1{font-size:28px} #md h2{font-size:21px;color:#9cc3ff} #md h3{font-size:17px} #md h4{font-size:15px}
-  #md p,#md li { margin:8px 0; } #md ul,#md ol { padding-left:26px; }
-  #md code { background:#0a0e18; border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:13px; }
-  #md pre { background:#0a0e18; border:1px solid var(--border); border-radius:8px; padding:14px; overflow:auto; margin:12px 0; }
-  #md pre code { border:none; background:none; padding:0; }
-  #md table { border-collapse:collapse; margin:12px 0; width:100%; } #md th,#md td { border:1px solid var(--border); padding:7px 11px; text-align:left; } #md th{background:var(--bg2)}
-  #md blockquote { border-left:3px solid var(--accent); padding:4px 16px; color:var(--muted); margin:12px 0; }
-  #md hr { border:none; border-top:1px solid var(--border); margin:26px 0; }
-  a { color:var(--accent); }
-
-  /* floating edit button (GitHub-style pencil) */
-  #btn-edit {
-    position:absolute; top:18px; right:18px; z-index:5;
-    background:var(--bg2); border:1px solid var(--border); color:var(--muted);
-    border-radius:8px; width:36px; height:36px; cursor:pointer; font-size:16px;
-    display:flex; align-items:center; justify-content:center;
+  /* markdown sections — neubrutalist slabs */
+  #md { max-width:920px; margin:0 auto; padding:30px 26px 100px; position:relative; }
+  .nb {
+    border:var(--bw) solid var(--ink); box-shadow:var(--shadow);
+    padding:26px 28px; margin-bottom:34px; background:var(--side);
   }
-  #btn-edit:hover { color:var(--text); border-color:var(--accent); }
+  .nb.orig { background:var(--yellow); transform:rotate(-0.35deg); }
+  .nb.summ { background:var(--blue); transform:rotate(0.35deg); }
+  .nb-tag {
+    display:inline-block; background:var(--ink); color:var(--paper);
+    font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    padding:4px 12px; margin-bottom:18px; font-weight:800;
+  }
+  .nb.orig > .nb-tag { background:var(--ink); color:var(--yellow); }
+  .nb.summ > .nb-tag { background:var(--ink); color:var(--blue); }
+
+  #md h1,#md h2,#md h3,#md h4,#md h5,#md h6 { margin:20px 0 10px; line-height:1.25; font-weight:900; }
+  #md h1{font-size:27px} #md h2{font-size:21px} #md h3{font-size:17px} #md h4{font-size:15px}
+  #md h2 { display:inline-block; background:var(--ink); color:var(--paper); padding:3px 10px; }
+  #md p,#md li { margin:8px 0; } #md ul,#md ol { padding-left:26px; }
+  #md li::marker { color:var(--ink); font-weight:900; }
+  #md code { background:var(--ink); color:var(--yellow); padding:1px 6px; font-size:12.5px; font-weight:800; }
+  #md pre { background:var(--ink); color:var(--paper); border:3px solid var(--ink); box-shadow:var(--shadow-sm); padding:14px; overflow:auto; margin:14px 0; }
+  #md pre code { border:none; background:none; padding:0; color:inherit; }
+  #md table { border-collapse:collapse; margin:14px 0; width:100%; background:var(--side); }
+  #md th,#md td { border:3px solid var(--ink); padding:7px 11px; text-align:left; }
+  #md th { background:var(--ink); color:var(--paper); text-transform:uppercase; font-size:12px; }
+  #md blockquote { border:3px solid var(--ink); background:var(--side); box-shadow:var(--shadow-sm); padding:10px 16px; margin:14px 0; font-weight:700; }
+  #md hr { border:none; border-top:4px solid var(--ink); margin:28px 0; }
+  a { color:var(--ink); text-decoration:underline 3px; text-decoration-color:var(--pink); }
+  a:hover { background:var(--pink); }
+  .meta { display:inline-block; background:var(--side); border:3px solid var(--ink); box-shadow:var(--shadow-sm); padding:6px 12px; font-size:12px; margin-bottom:22px; font-weight:700; }
+
+  /* floating edit pencil */
+  #btn-edit {
+    position:absolute; top:16px; right:16px; z-index:5;
+    background:var(--yellow); border:3px solid var(--ink); color:var(--ink);
+    width:42px; height:42px; cursor:pointer; font-size:17px;
+    box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;
+  }
+  #btn-edit:hover { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--ink); }
+  #btn-edit:active { transform:translate(3px,3px); box-shadow:none; }
 
   /* editor */
-  #editor-bar { max-width:900px; margin:0 auto; padding:20px 30px 0; display:flex; gap:8px; justify-content:flex-end; }
-  #editor-wrap { max-width:900px; margin:10px auto 40px; padding:0 30px; }
+  #editor-bar { max-width:920px; margin:0 auto; padding:22px 26px 0; display:flex; gap:10px; justify-content:flex-end; }
+  #editor-wrap { max-width:920px; margin:12px auto 40px; padding:0 26px; }
   #editor {
-    width:100%; height:62vh; resize:vertical; background:var(--bg2); color:var(--text);
-    border:1px solid var(--border); border-radius:10px; padding:16px;
-    font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace; outline:none;
+    width:100%; height:60vh; resize:vertical; background:var(--side); color:var(--ink);
+    border:var(--bw) solid var(--ink); box-shadow:var(--shadow); padding:16px;
+    font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace; outline:none; font-weight:700;
   }
-  #editor:focus { border-color:var(--accent); }
+  #editor:focus { background:#fffef9; }
 
   /* modal + toast */
-  #modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
-  #modal { background:var(--side); border:1px solid var(--border); border-radius:12px; padding:20px; width:min(420px,92vw); }
-  #modal h3 { font-size:15px; margin-bottom:12px; }
+  #modal-bg { position:fixed; inset:0; background:rgba(17,17,17,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  #modal { background:var(--paper); border:var(--bw) solid var(--ink); box-shadow:10px 10px 0 var(--ink); padding:22px; width:min(430px,92vw); }
+  #modal h3 { font-size:16px; text-transform:uppercase; margin-bottom:14px; }
   #modal input {
-    width:100%; background:var(--bg2); color:var(--text); border:1px solid var(--border);
-    border-radius:8px; padding:9px 11px; font-size:13px; outline:none; margin-bottom:6px;
+    width:100%; background:var(--side); color:var(--ink); border:3px solid var(--ink);
+    padding:10px 12px; font-size:13px; outline:none; margin-bottom:8px; font-family:inherit; font-weight:700;
   }
-  #modal input:focus { border-color:var(--accent); }
-  #modal .hintline { color:var(--muted); font-size:11.5px; margin-bottom:12px; }
-  #modal .mrow { display:flex; gap:8px; justify-content:flex-end; }
+  #modal input:focus { background:#fffef9; box-shadow:var(--shadow-sm); }
+  #modal .hintline { color:var(--ink); opacity:.65; font-size:11.5px; margin-bottom:14px; }
+  #modal .mrow { display:flex; gap:10px; justify-content:flex-end; }
   #toast {
-    position:fixed; bottom:20px; right:20px; z-index:60; max-width:70vw;
-    background:var(--side); border:1px solid var(--border); border-left:3px solid var(--accent);
-    border-radius:9px; padding:11px 15px; font-size:12.5px; display:none; word-break:break-word;
+    position:fixed; bottom:22px; right:22px; z-index:60; max-width:70vw;
+    background:var(--lime); border:var(--bw) solid var(--ink); box-shadow:var(--shadow);
+    padding:12px 16px; font-size:12.5px; display:none; word-break:break-word; font-weight:800;
   }
-  #toast.ok { border-left-color:var(--ok); } #toast.err { border-left-color:var(--err); }
+  #toast.err { background:var(--pink); }
 
   @media (max-width:800px) {
     #burger { display:block; }
     #sidebar { position:fixed; left:0; top:0; bottom:0; z-index:40; transform:translateX(-105%); transition:transform .18s; }
-    #sidebar.open { transform:none; box-shadow:0 0 40px rgba(0,0,0,.5); }
+    #sidebar.open { transform:none; box-shadow:14px 0 0 rgba(17,17,17,.25); }
+    .nb { padding:20px 18px; transform:none !important; }
   }
 </style>
 </head>
 <body>
 
 <aside id="sidebar">
-  <div id="side-head"><span>Explorer · notes/</span><span id="cnt"></span></div>
+  <div id="side-head"><span>📁 Explorer · notes/</span><span id="cnt"></span></div>
   <div id="tree"><div class="row loading">Loading…</div></div>
   <div id="side-foot">
-    <button id="b-newfile" title="New file in selected folder">+ File</button>
-    <button id="b-newdir" title="New folder in selected folder">+ Folder</button>
-    <button id="b-token" title="Set GitHub token (needed to save)">🔑<span id="tok-dot"></span></button>
+    <button id="b-newfile" title="New file in selected folder">+ FILE</button>
+    <button id="b-newdir" title="New folder in selected folder">+ FOLDER</button>
+    <button id="b-token" title="Set GitHub token (needed to save)">🔑</button>
   </div>
 </aside>
 
@@ -178,13 +211,14 @@ const BRANCH = "main";
 const ROOT = "docs/summaries";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
+const SPLIT = "<!--FFCAMP-SPLIT-->";
 
 let TOKEN = localStorage.getItem("ffcamp_token") || "";
 let TREE = null;
 let FLAT = new Map();
 let EXPANDED = new Set([ROOT]);
 let SELECTED = ROOT;
-let CURRENT = null;   // {path, sha, raw, isNew}
+let CURRENT = null;
 
 /* ================================ github ================================= */
 function hdrs(extra = {}) {
@@ -213,11 +247,7 @@ const b64u = (s) => {
 };
 
 async function putFile(path, content, sha) {
-  const body = {
-    message: `notes: ${sha ? "update" : "create"} ${path}`,
-    content: b64u(content),
-    branch: BRANCH
-  };
+  const body = { message: `notes: ${sha ? "update" : "create"} ${path}`, content: b64u(content), branch: BRANCH };
   if (sha) body.sha = sha;
   await apiJson(`${API}/contents/${encP(path)}`, { method: "PUT", body: JSON.stringify(body) });
 }
@@ -228,7 +258,6 @@ async function delFile(path, sha) {
   });
 }
 
-/* build nested tree from ONE recursive git-trees call */
 async function loadTree() {
   const j = await apiJson(`${API}/git/trees/${BRANCH}?recursive=1`);
   const blobs = (j.tree || []).filter((t) => t.type === "blob" && t.path.startsWith(ROOT + "/"));
@@ -274,7 +303,7 @@ async function loadTree() {
 
 /* ============================== rendering ================================ */
 const $ = (id) => document.getElementById(id);
-
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 function fileIcon(name) {
   return /\.md$/i.test(name) ? "📄" : /\.(png|jpe?g|gif|svg)$/i.test(name) ? "🖼" : "📄";
 }
@@ -286,6 +315,7 @@ function renderTree() {
   (function cnt(n) {
     n.children.forEach((c) => { if (c.type === "file") count++; else cnt(c); });
   })(TREE);
+  const hasKeep = (n) => n.children.some((c) => c.name === ".gitkeep");
 
   function html(node, depth) {
     let out = "<ul>";
@@ -293,15 +323,15 @@ function renderTree() {
       if (c.type === "dir") {
         const open = EXPANDED.has(c.path);
         out += `<li><div class="row${SELECTED === c.path ? " sel" : ""}" data-dir="${esc(c.path)}">
-          <span class="chev">${open ? "▾" : "▸"}</span><span class="ico">${open ? "📂" : "📁"}</span>
+          <span class="chev">${open ? "▼" : "▶"}</span><span class="ico">${open ? "📂" : "📁"}</span>
           <span class="nm">${esc(c.name)}</span>
           <span class="acts">
             <button data-act="rename" data-path="${esc(c.path)}" title="Rename">✏️</button>
             <button data-act="del" data-path="${esc(c.path)}" title="Delete">🗑️</button>
           </span></div>`;
-        out += `<ul ${open ? "" : "hidden"}>` ;
+        out += `<ul ${open ? "" : "hidden"}>`;
         if (!c.children.length && !hasKeep(c))
-          out += `<li><div class="row" style="color:var(--muted);cursor:default"><span class="chev"></span><span class="ico">·</span><span class="nm">empty</span></div></li>`;
+          out += `<li><div class="row" style="opacity:.5;cursor:default"><span class="chev"></span><span class="ico">·</span><span class="nm">empty</span></div></li>`;
         out += html(c, depth + 1);
         out += "</ul></li>";
       } else {
@@ -317,47 +347,41 @@ function renderTree() {
     }
     return out + "</ul>";
   }
-  function hasKeep(n) { return n.children.some((c) => c.name === ".gitkeep"); }
 
   el.innerHTML = html(TREE, 0);
   $("cnt").textContent = `${count} file${count === 1 ? "" : "s"}`;
 }
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
-
 function setCrumb(path) {
-  if (!path) { $("crumb").innerHTML = "<b>notes/</b>"; return; }
+  if (!path) { $("crumb").innerHTML = "<b>NOTES/</b>"; return; }
   const rel = path.startsWith(ROOT + "/") ? path.slice(ROOT.length + 1) : path;
-  $("crumb").innerHTML = `<b>notes/</b>${esc(rel)}`;
+  $("crumb").innerHTML = `<b>NOTES/</b>${esc(rel)}`;
 }
 
 /* ============================== main views =============================== */
 function showWelcome() {
   CURRENT = null;
+  EDITING = false;
+  cleanupEditor();
   $("actions").innerHTML = "";
   setCrumb("");
   const md = $("md");
+  md.hidden = false;
   md.className = "welcome";
-  md.style.position = "";
   md.innerHTML = `
     <h2>📚 Your study notes live here</h2>
-    <p>Pick a file from the explorer, or create one with <code>+ File</code>.</p>
+    <p>Pick a file from the explorer, or create one with <code>+ FILE</code>.</p>
     <p>Summaries you save from the FFCamp browser extension appear automatically in this workspace.</p>
-    <p>To rename/delete/create, hover items in the sidebar. Writes need a token once — tap <code>🔑</code>.</p>`;
+    <p>To rename / delete / create, hover items in the sidebar. Writes need a token once — tap <code>🔑</code>.</p>`;
 }
 
-async function openFile(path, opts = {}) {
+async function openFile(path) {
   try {
+    toast(`Opening ${path.split("/").pop()}…`);
     const node = FLAT.get(path);
-    if (!opts.keepCurrent) {
-      toast(`Opening ${path.split("/").pop()}…`);
-      const r = await fetch(`${RAW}/${encP(path)}?t=${Date.now()}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      CURRENT = { path, sha: node?.sha ?? null, raw: await r.text() };
-    } else {
-      CURRENT.raw = opts.raw ?? CURRENT.raw ?? "";
-      CURRENT.sha = node?.sha ?? null;
-    }
+    const r = await fetch(`${RAW}/${encP(path)}?t=${Date.now()}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    CURRENT = { path, sha: node?.sha ?? null, raw: await r.text(), isNew: false };
     EDITING = false;
     renderView();
   } catch (e) {
@@ -372,33 +396,45 @@ function renderView() {
 
   if (EDITING) {
     setCrumb(CURRENT.path + " (editing)");
-    md.className = "";
-    md.style.position = "";
     md.hidden = true;
-
-    let bar = $("editor-bar"), wrap = $("editor-wrap");
-    if (!wrap) {
-      wrap = document.createElement("div"); wrap.id = "editor-wrap";
-      bar = document.createElement("div"); bar.id = "editor-bar";
-      wrap.innerHTML = '<textarea id="editor" spellcheck="false"></textarea>';
-      $("view").appendChild(bar); $("view").appendChild(wrap);
-    }
-    wrap.hidden = false; bar.hidden = false;
+    cleanupEditor();
+    let bar = document.createElement("div"); bar.id = "editor-bar";
+    let wrap = document.createElement("div"); wrap.id = "editor-wrap";
     bar.innerHTML =
       '<button class="tbtn" id="e-cancel">Cancel</button>' +
       '<button class="tbtn primary" id="e-save">💾 Save (Ctrl+S)</button>';
+    wrap.innerHTML = '<textarea id="editor" spellcheck="false"></textarea>';
+    $("view").appendChild(bar); $("view").appendChild(wrap);
     $("editor").value = CURRENT.raw;
     $("e-save").onclick = saveEditing;
-    $("e-cancel").onclick = () => { EDITING = false; cleanupEditor(); renderView(); };
+    $("e-cancel").onclick = () => {
+      EDITING = false;
+      cleanupEditor();
+      if (CURRENT.isNew) showWelcome(); else renderView();
+    };
+    setTimeout(() => $("editor").focus(), 30);
     return;
   }
 
   cleanupEditor();
   md.hidden = false;
   md.className = "";
-  md.style.position = "relative";
   setCrumb(CURRENT?.path);
-  md.innerHTML = marked.parse(CURRENT.raw) + '<button id="btn-edit" title="Edit this file">✏️</button>';
+
+  /* split into Original Content slab + AI Summary slab */
+  const idx = CURRENT.raw.indexOf(SPLIT);
+  const rawA = idx >= 0 ? CURRENT.raw.slice(0, idx) : CURRENT.raw;
+  const rawB = idx >= 0 ? CURRENT.raw.slice(idx + SPLIT.length) : null;
+
+  const secA = `<section class="nb orig"><span class="nb-tag">Original Content · as scraped</span>${marked.parse(rawA)}</section>`;
+  const secB = rawB !== null
+    ? `<section class="nb summ"><span class="nb-tag">Study Analysis · by AI</span>${marked.parse(rawB)}</section>`
+    : "";
+
+  md.innerHTML =
+    `<blockquote class="meta">${esc(CURRENT.path.split("/").pop())}</blockquote>` +
+    secA + secB +
+    '<button id="btn-edit" title="Edit this file">✏️</button>';
   $("btn-edit").onclick = startEditing;
 }
 
@@ -417,10 +453,7 @@ async function saveEditing() {
   const text = $("editor").value;
   try {
     btnBusy(true);
-    if (CURRENT.isNew) {
-      const dir = SELECTED || ROOT;
-      CURRENT.path = `${dir}/${CURRENT.newName}`;
-    }
+    if (CURRENT.isNew) CURRENT.path = `${SELECTED || ROOT}/${CURRENT.newName}`;
     await putFile(CURRENT.path, text, CURRENT.sha);
     toast("Saved ✓", "ok");
     EDITING = false;
@@ -472,15 +505,14 @@ function ask(title, defVal, hint) {
 async function newFile() {
   const name = await ask("New file (in " + (SELECTED || ROOT).replace(ROOT + "/", "") + "/)", "", "e.g. my-notes.md");
   if (!name) return;
-  const path = `${SELECTED || ROOT}/${name}`;
-  CURRENT = { path, sha: null, raw: "", isNew: true, newName: name };
+  CURRENT = { path: `${SELECTED || ROOT}/${name}`, sha: null, raw: "", isNew: true, newName: name };
   EDITING = true;
   renderView();
   toast("Write something, then Save to commit.", "ok");
 }
 
 async function newFolder() {
-  const name = await ask("New folder (in " + (SELECTED || ROOT).replace(ROOT + "/", "") + "/)", "", "folders are created with a .gitkeep placeholder");
+  const name = await ask("New folder (in " + (SELECTED || ROOT).replace(ROOT + "/", "") + "/)", "", "created with a .gitkeep placeholder");
   if (!name) return;
   try {
     await putFile(`${SELECTED || ROOT}/${name}/.gitkeep`, "# placeholder\n");
@@ -503,17 +535,14 @@ async function renameItem(path) {
       await putFile(target, await r.text(), node.sha);
       await delFile(path, node.sha);
     } else {
-      const files = [...FLAT.values()].filter(
-        (f) => f.type === "file" && f.path.startsWith(path + "/")
-      );
-      if (!files.length) throw new Error("folder is empty in git (only .gitkeep?)");
+      const files = [...FLAT.values()].filter((f) => f.type === "file" && f.path.startsWith(path + "/"));
+      if (!files.length) throw new Error("folder has no files to move");
       let i = 0;
       for (const f of files) {
         i++;
         toast(`Moving ${i}/${files.length}: ${f.name}…`);
         const r = await fetch(`${RAW}/${encP(f.path)}`);
-        const np = target + f.path.slice(path.length);
-        await putFile(np, await r.text(), f.sha);
+        await putFile(target + f.path.slice(path.length), await r.text(), f.sha);
         await delFile(f.path, f.sha);
       }
       if (EXPANDED.has(path)) { EXPANDED.delete(path); EXPANDED.add(target); }
@@ -532,9 +561,7 @@ async function deleteItem(path) {
     if (node.type === "file") {
       await delFile(path, node.sha);
     } else {
-      const files = [...FLAT.values()].filter(
-        (f) => f.type === "file" && f.path.startsWith(path + "/")
-      );
+      const files = [...FLAT.values()].filter((f) => f.type === "file" && f.path.startsWith(path + "/"));
       let i = 0;
       for (const f of files) {
         i++;
@@ -554,15 +581,13 @@ $("tree").addEventListener("click", (e) => {
   if (actBtn) {
     e.stopPropagation();
     const p = actBtn.dataset.path;
-    if (actBtn.dataset.act === "rename") renameItem(p);
-    else deleteItem(p);
+    actBtn.dataset.act === "rename" ? renameItem(p) : deleteItem(p);
     return;
   }
   const dirRow = e.target.closest(".row[data-dir]");
   if (dirRow) {
-    const p = dirRow.dataset.dir;
-    SELECTED = p;
-    EXPANDED.has(p) ? EXPANDED.delete(p) : EXPANDED.add(p);
+    SELECTED = dirRow.dataset.dir;
+    EXPANDED.has(SELECTED) ? EXPANDED.delete(SELECTED) : EXPANDED.add(SELECTED);
     renderTree();
     return;
   }
@@ -578,7 +603,6 @@ $("tree").addEventListener("click", (e) => {
 $("b-newfile").onclick = newFile;
 $("b-newdir").onclick = newFolder;
 
-/* token modal reuse */
 $("b-token").onclick = async () => {
   const t = await ask("GitHub token", TOKEN, "Fine-grained or classic, with Contents: Read & write. Stored only in your browser.");
   if (t === null) return;
@@ -587,7 +611,7 @@ $("b-token").onclick = async () => {
   tokDot();
   toast(t ? "Token saved ✓" : "Token cleared", "ok");
 };
-function tokDot() { $("tok-dot").textContent = TOKEN ? " ●" : ""; }
+function tokDot() { $("tok-dot")?.remove(); $("b-token").textContent = TOKEN ? "🔑●" : "🔑"; }
 
 $("burger").onclick = () => $("sidebar").classList.toggle("open");
 function closeMobileSidebar() { if (innerWidth <= 800) $("sidebar").classList.remove("open"); }
@@ -599,7 +623,7 @@ function toast(msg, kind) {
   t.className = kind || "";
   t.style.display = "block";
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.style.display = "none"), kind === "err" ? 7000 : 3200);
+  toastTimer = setTimeout(() => (t.style.display = "none"), kind === "err" ? 7000 : 3000);
 }
 
 /* ================================ boot =================================== */
@@ -625,7 +649,7 @@ function toast(msg, kind) {
       } else showWelcome();
     })
     .catch((e) => {
-      $("tree").innerHTML = `<div class="row" style="color:var(--err)">${esc(e.message)}</div>`;
+      $("tree").innerHTML = `<div class="row" style="color:#a00">${esc(e.message)}</div>`;
       showWelcome();
     });
 })();
