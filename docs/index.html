@@ -3,98 +3,631 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FFCamp Study Notes</title>
+<title>FFCamp Notes</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
-  :root { --bg:#0f1420; --bg2:#171e2e; --border:#2a3550; --text:#e7ecf5; --muted:#93a0b8; --accent:#4e8df7; }
+  :root {
+    --bg:#0f1420; --side:#121826; --bg2:#171e2e; --hover:#1d2740;
+    --border:#2a3550; --text:#e7ecf5; --muted:#93a0b8; --accent:#4e8df7;
+    --ok:#4ade80; --err:#f87171; --side-w:270px;
+  }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); max-width:860px; margin:0 auto; padding:32px 20px 80px; }
-  h1 { font-size:22px; margin-bottom:4px; } h1 a { color:var(--text); text-decoration:none; }
-  .sub { color:var(--muted); font-size:13px; margin-bottom:28px; }
-  .card { display:block; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; color:var(--text); text-decoration:none; transition:border-color .15s; }
-  .card:hover { border-color:var(--accent); }
-  .card .t { font-weight:600; margin-bottom:2px; }
-  .card .d { color:var(--muted); font-size:12px; }
-  #content { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:28px 30px; overflow-wrap:break-word; }
-  #content h1,#content h2,#content h3 { margin:22px 0 10px; line-height:1.3; } #content h1{font-size:26px} #content h2{font-size:20px;color:#9cc3ff} #content h3{font-size:17px}
-  #content p,#content li { margin:8px 0; } #content ul,#content ol { padding-left:24px; }
-  #content code { background:#0a0e18; border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:13px; }
-  #content pre { background:#0a0e18; border:1px solid var(--border); border-radius:8px; padding:14px; overflow:auto; margin:12px 0; }
-  #content pre code { border:none; background:none; padding:0; }
-  #content table { border-collapse:collapse; margin:12px 0; width:100%; } #content th,#content td { border:1px solid var(--border); padding:7px 11px; text-align:left; } #content th { background:var(--bg2); }
-  #content blockquote { border-left:3px solid var(--accent); padding:4px 16px; color:var(--muted); margin:12px 0; }
-  #content hr { border:none; border-top:1px solid var(--border); margin:24px 0; }
+  html,body { height:100%; }
+  body { font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); display:flex; overflow:hidden; }
+
+  /* ---------- sidebar ---------- */
+  #sidebar {
+    width:var(--side-w); min-width:var(--side-w); background:var(--side);
+    border-right:1px solid var(--border); display:flex; flex-direction:column; height:100vh;
+  }
+  #side-head {
+    padding:12px 12px 8px; border-bottom:1px solid var(--border);
+    font-size:11px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #tree { flex:1; overflow:auto; padding:6px 0; font-size:13px; }
+  #tree ul { list-style:none; padding-left:0; }
+  #tree ul ul { padding-left:14px; }
+  .row {
+    display:flex; align-items:center; gap:6px; padding:3px 10px; cursor:pointer;
+    white-space:nowrap; user-select:none; position:relative;
+  }
+  .row:hover { background:var(--hover); }
+  .row.sel { background:#22304f; box-shadow:inset 2px 0 0 var(--accent); }
+  .row .chev { width:12px; text-align:center; color:var(--muted); font-size:10px; flex:none; }
+  .row .ico { flex:none; }
+  .row .nm { overflow:hidden; text-overflow:ellipsis; }
+  .row .acts { margin-left:auto; display:none; gap:2px; }
+  .row:hover .acts { display:flex; }
+  .acts button {
+    background:none; border:none; color:var(--muted); cursor:pointer; font-size:11px;
+    padding:1px 4px; border-radius:4px;
+  }
+  .acts button:hover { color:var(--text); background:#2c3a5c; }
+  #side-foot {
+    border-top:1px solid var(--border); padding:8px; display:flex; gap:6px;
+  }
+  #side-foot button {
+    flex:1; background:var(--bg2); color:var(--text); border:1px solid var(--border);
+    border-radius:7px; padding:6px 4px; cursor:pointer; font-size:12px;
+  }
+  #side-foot button:hover { border-color:var(--accent); }
+
+  /* ---------- main ---------- */
+  #main { flex:1; display:flex; flex-direction:column; height:100vh; min-width:0; }
+  #topbar {
+    display:flex; align-items:center; gap:10px; padding:9px 16px;
+    border-bottom:1px solid var(--border); background:var(--side);
+  }
+  #burger { display:none; background:none; border:1px solid var(--border); color:var(--text); border-radius:7px; padding:4px 9px; cursor:pointer; font-size:14px; }
+  #crumb { flex:1; font-size:12.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #crumb b { color:var(--text); font-weight:600; }
+  .tbtn {
+    background:var(--bg2); color:var(--text); border:1px solid var(--border);
+    border-radius:7px; padding:5px 11px; cursor:pointer; font-size:12.5px; white-space:nowrap;
+  }
+  .tbtn:hover { border-color:var(--accent); }
+  .tbtn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+
+  #view { flex:1; overflow:auto; }
+  .wrap { max-width:900px; margin:0 auto; padding:34px 30px 90px; }
+
+  /* welcome */
+  .welcome h2 { margin-bottom:10px; } .welcome p { color:var(--muted); margin:8px 0; }
+  .welcome code { background:var(--bg2); border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:12.5px; }
+
+  /* markdown */
+  #md { max-width:900px; margin:0 auto; padding:34px 30px 90px; overflow-wrap:break-word; position:relative; }
+  #md.viewing h1,#md h1,#md h2,#md h3,#md h4 { margin:24px 0 10px; line-height:1.3; }
+  #md h1{font-size:28px} #md h2{font-size:21px;color:#9cc3ff} #md h3{font-size:17px} #md h4{font-size:15px}
+  #md p,#md li { margin:8px 0; } #md ul,#md ol { padding-left:26px; }
+  #md code { background:#0a0e18; border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:13px; }
+  #md pre { background:#0a0e18; border:1px solid var(--border); border-radius:8px; padding:14px; overflow:auto; margin:12px 0; }
+  #md pre code { border:none; background:none; padding:0; }
+  #md table { border-collapse:collapse; margin:12px 0; width:100%; } #md th,#md td { border:1px solid var(--border); padding:7px 11px; text-align:left; } #md th{background:var(--bg2)}
+  #md blockquote { border-left:3px solid var(--accent); padding:4px 16px; color:var(--muted); margin:12px 0; }
+  #md hr { border:none; border-top:1px solid var(--border); margin:26px 0; }
   a { color:var(--accent); }
-  .back { display:inline-block; margin-bottom:18px; font-size:13px; }
-  .loading { color:var(--muted); }
+
+  /* floating edit button (GitHub-style pencil) */
+  #btn-edit {
+    position:absolute; top:18px; right:18px; z-index:5;
+    background:var(--bg2); border:1px solid var(--border); color:var(--muted);
+    border-radius:8px; width:36px; height:36px; cursor:pointer; font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #btn-edit:hover { color:var(--text); border-color:var(--accent); }
+
+  /* editor */
+  #editor-bar { max-width:900px; margin:0 auto; padding:20px 30px 0; display:flex; gap:8px; justify-content:flex-end; }
+  #editor-wrap { max-width:900px; margin:10px auto 40px; padding:0 30px; }
+  #editor {
+    width:100%; height:62vh; resize:vertical; background:var(--bg2); color:var(--text);
+    border:1px solid var(--border); border-radius:10px; padding:16px;
+    font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace; outline:none;
+  }
+  #editor:focus { border-color:var(--accent); }
+
+  /* modal + toast */
+  #modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+  #modal { background:var(--side); border:1px solid var(--border); border-radius:12px; padding:20px; width:min(420px,92vw); }
+  #modal h3 { font-size:15px; margin-bottom:12px; }
+  #modal input {
+    width:100%; background:var(--bg2); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; padding:9px 11px; font-size:13px; outline:none; margin-bottom:6px;
+  }
+  #modal input:focus { border-color:var(--accent); }
+  #modal .hintline { color:var(--muted); font-size:11.5px; margin-bottom:12px; }
+  #modal .mrow { display:flex; gap:8px; justify-content:flex-end; }
+  #toast {
+    position:fixed; bottom:20px; right:20px; z-index:60; max-width:70vw;
+    background:var(--side); border:1px solid var(--border); border-left:3px solid var(--accent);
+    border-radius:9px; padding:11px 15px; font-size:12.5px; display:none; word-break:break-word;
+  }
+  #toast.ok { border-left-color:var(--ok); } #toast.err { border-left-color:var(--err); }
+
+  @media (max-width:800px) {
+    #burger { display:block; }
+    #sidebar { position:fixed; left:0; top:0; bottom:0; z-index:40; transform:translateX(-105%); transition:transform .18s; }
+    #sidebar.open { transform:none; box-shadow:0 0 40px rgba(0,0,0,.5); }
+  }
 </style>
 </head>
 <body>
-  <h1><a href="./">📚 FFCamp Study Notes</a></h1>
-  <div class="sub">Auto-published summaries · served from the repo's docs/summaries folder</div>
 
-  <a href="./" id="back" class="back" hidden>← All notes</a>
-  <div id="list"></div>
-  <div id="content" hidden></div>
+<aside id="sidebar">
+  <div id="side-head"><span>Explorer · notes/</span><span id="cnt"></span></div>
+  <div id="tree"><div class="row loading">Loading…</div></div>
+  <div id="side-foot">
+    <button id="b-newfile" title="New file in selected folder">+ File</button>
+    <button id="b-newdir" title="New folder in selected folder">+ Folder</button>
+    <button id="b-token" title="Set GitHub token (needed to save)">🔑<span id="tok-dot"></span></button>
+  </div>
+</aside>
+
+<div id="main">
+  <div id="topbar">
+    <button id="burger">☰</button>
+    <div id="crumb">notes/</div>
+    <span id="actions"></span>
+  </div>
+  <div id="view">
+    <div id="md" class="welcome"></div>
+  </div>
+</div>
+
+<div id="modal-bg">
+  <div id="modal">
+    <h3 id="m-title"></h3>
+    <input id="m-input" type="text" autocomplete="off" />
+    <div class="hintline" id="m-hint"></div>
+    <div class="mrow">
+      <button class="tbtn" id="m-cancel">Cancel</button>
+      <button class="tbtn primary" id="m-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
 
 <script>
-(function () {
-  // derive owner/repo from the Pages URL itself -> works for any fork/repo name
-  const owner = location.hostname.split(".")[0];
-  const repo = (location.pathname.replace(/^\/+/, "").split("/")[0]) || "ffcamp_extension";
-  const branch = "main";
-  const apiDir = `https://api.github.com/repos/${owner}/${repo}/contents/docs/summaries`;
-  const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/docs/summaries`;
+/* ============================ config / state ============================= */
+const OWNER = location.hostname.split(".")[0];
+const REPO = location.pathname.replace(/^\/+/, "").split("/")[0] || "ffcamp_extension";
+const BRANCH = "main";
+const ROOT = "docs/summaries";
+const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
 
-  const listEl = document.getElementById("list");
-  const contentEl = document.getElementById("content");
-  const backEl = document.getElementById("back");
-  const file = new URLSearchParams(location.search).get("f");
+let TOKEN = localStorage.getItem("ffcamp_token") || "";
+let TREE = null;
+let FLAT = new Map();
+let EXPANDED = new Set([ROOT]);
+let SELECTED = ROOT;
+let CURRENT = null;   // {path, sha, raw, isNew}
 
-  function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+/* ================================ github ================================= */
+function hdrs(extra = {}) {
+  const h = { Accept: "application/vnd.github+json", ...extra };
+  if (TOKEN) h.Authorization = "Bearer " + TOKEN;
+  return h;
+}
+async function apiJson(url, opts = {}) {
+  const r = await fetch(url, { ...opts, headers: hdrs(opts.headers || {}) });
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    const msg = b.message || r.statusText;
+    throw new Error(r.status === 401 || r.status === 403
+      ? `${msg} — set a valid token via 🔑 (needs Contents: Read & write)`
+      : `GitHub ${r.status}: ${msg}`);
+  }
+  return r.status === 204 ? null : r.json();
+}
+const encP = (p) => p.split("/").map(encodeURIComponent).join("/");
+const b64u = (s) => {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
 
-  async function showList() {
-    try {
-      const res = await fetch(apiDir);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      let items = await res.json();
-      items = items.filter((i) => i.name.toLowerCase().endsWith(".md")).sort((a, b) => b.name.localeCompare(a.name));
-      if (!items.length) {
-        listEl.innerHTML = '<p class="loading">No summaries yet - save one from the extension and refresh.</p>';
-        return;
-      }
-      listEl.innerHTML = items
-        .map((i) => {
-          const pretty = i.name.replace(/\.md$/i, "").replace(/-/g, " ");
-          return `<a class="card" href="?f=${encodeURIComponent(i.name)}"><div class="t">${esc(pretty)}</div><div class="d">${i.name}</div></a>`;
-        })
-        .join("");
-    } catch (e) {
-      listEl.innerHTML = `<p class="loading">Could not load notes (${esc(e.message)}).</p>`;
-    }
+async function putFile(path, content, sha) {
+  const body = {
+    message: `notes: ${sha ? "update" : "create"} ${path}`,
+    content: b64u(content),
+    branch: BRANCH
+  };
+  if (sha) body.sha = sha;
+  await apiJson(`${API}/contents/${encP(path)}`, { method: "PUT", body: JSON.stringify(body) });
+}
+async function delFile(path, sha) {
+  await apiJson(`${API}/contents/${encP(path)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ message: `notes: delete ${path}`, sha, branch: BRANCH })
+  });
+}
+
+/* build nested tree from ONE recursive git-trees call */
+async function loadTree() {
+  const j = await apiJson(`${API}/git/trees/${BRANCH}?recursive=1`);
+  const blobs = (j.tree || []).filter((t) => t.type === "blob" && t.path.startsWith(ROOT + "/"));
+
+  const rootNode = { type: "root", path: ROOT, name: "notes", children: [] };
+  const dirIdx = new Map([[ROOT, rootNode]]);
+  const mkdirp = (dp) => {
+    if (dirIdx.has(dp)) return dirIdx.get(dp);
+    const parts = dp.split("/");
+    const nm = parts.pop();
+    const parent = parts.join("/") === ROOT ? rootNode : mkdirp(parts.join("/"));
+    const node = { type: "dir", path: dp, name: nm, children: [] };
+    dirIdx.set(dp, node);
+    parent.children.push(node);
+    return node;
+  };
+
+  for (const t of blobs) {
+    const parts = t.path.split("/");
+    const nm = parts.pop();
+    const dp = parts.join("/");
+    const parent = dp === ROOT ? rootNode : mkdirp(dp);
+    parent.children.push({ type: "file", path: t.path, name: nm, sha: t.sha });
   }
 
-  async function showNote(name) {
-    backEl.hidden = false;
-    contentEl.hidden = false;
-    contentEl.innerHTML = '<p class="loading">Loading…</p>';
-    try {
-      const res = await fetch(`${rawBase}/${encodeURIComponent(name)}?t=${Date.now()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const md = await res.text();
-      if (window.marked) {
-        contentEl.innerHTML = marked.parse(md);
+  const sortRec = (n) => {
+    n.children.sort((a, b) =>
+      a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name)
+    );
+    n.children.forEach((c) => c.type === "dir" && sortRec(c));
+  };
+  sortRec(rootNode);
+
+  TREE = rootNode;
+  FLAT = new Map();
+  (function walk(n) {
+    n.children.forEach((c) => {
+      FLAT.set(c.path, c);
+      if (c.type === "dir") walk(c);
+    });
+  })(TREE);
+}
+
+/* ============================== rendering ================================ */
+const $ = (id) => document.getElementById(id);
+
+function fileIcon(name) {
+  return /\.md$/i.test(name) ? "📄" : /\.(png|jpe?g|gif|svg)$/i.test(name) ? "🖼" : "📄";
+}
+
+function renderTree() {
+  const el = $("tree");
+  if (!TREE) return;
+  let count = 0;
+  (function cnt(n) {
+    n.children.forEach((c) => { if (c.type === "file") count++; else cnt(c); });
+  })(TREE);
+
+  function html(node, depth) {
+    let out = "<ul>";
+    for (const c of node.children) {
+      if (c.type === "dir") {
+        const open = EXPANDED.has(c.path);
+        out += `<li><div class="row${SELECTED === c.path ? " sel" : ""}" data-dir="${esc(c.path)}">
+          <span class="chev">${open ? "▾" : "▸"}</span><span class="ico">${open ? "📂" : "📁"}</span>
+          <span class="nm">${esc(c.name)}</span>
+          <span class="acts">
+            <button data-act="rename" data-path="${esc(c.path)}" title="Rename">✏️</button>
+            <button data-act="del" data-path="${esc(c.path)}" title="Delete">🗑️</button>
+          </span></div>`;
+        out += `<ul ${open ? "" : "hidden"}>` ;
+        if (!c.children.length && !hasKeep(c))
+          out += `<li><div class="row" style="color:var(--muted);cursor:default"><span class="chev"></span><span class="ico">·</span><span class="nm">empty</span></div></li>`;
+        out += html(c, depth + 1);
+        out += "</ul></li>";
       } else {
-        contentEl.innerHTML = `<pre style="white-space:pre-wrap">${esc(md)}</pre>`;
+        if (depth === 0 && c.name === "README.md" && c.path.endsWith("summaries/README.md")) continue;
+        out += `<li><div class="row${CURRENT?.path === c.path ? " sel" : ""}" data-file="${esc(c.path)}">
+          <span class="chev"></span><span class="ico">${fileIcon(c.name)}</span>
+          <span class="nm">${esc(c.name)}</span>
+          <span class="acts">
+            <button data-act="rename" data-path="${esc(c.path)}" title="Rename">✏️</button>
+            <button data-act="del" data-path="${esc(c.path)}" title="Delete">🗑️</button>
+          </span></div></li>`;
       }
-      document.title = name.replace(/\.md$/i, "") + " · FFCamp";
-    } catch (e) {
-      contentEl.innerHTML = `<p class="loading">Could not load "${esc(name)}" (${esc(e.message)}).</p>`;
     }
+    return out + "</ul>";
+  }
+  function hasKeep(n) { return n.children.some((c) => c.name === ".gitkeep"); }
+
+  el.innerHTML = html(TREE, 0);
+  $("cnt").textContent = `${count} file${count === 1 ? "" : "s"}`;
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function setCrumb(path) {
+  if (!path) { $("crumb").innerHTML = "<b>notes/</b>"; return; }
+  const rel = path.startsWith(ROOT + "/") ? path.slice(ROOT.length + 1) : path;
+  $("crumb").innerHTML = `<b>notes/</b>${esc(rel)}`;
+}
+
+/* ============================== main views =============================== */
+function showWelcome() {
+  CURRENT = null;
+  $("actions").innerHTML = "";
+  setCrumb("");
+  const md = $("md");
+  md.className = "welcome";
+  md.style.position = "";
+  md.innerHTML = `
+    <h2>📚 Your study notes live here</h2>
+    <p>Pick a file from the explorer, or create one with <code>+ File</code>.</p>
+    <p>Summaries you save from the FFCamp browser extension appear automatically in this workspace.</p>
+    <p>To rename/delete/create, hover items in the sidebar. Writes need a token once — tap <code>🔑</code>.</p>`;
+}
+
+async function openFile(path, opts = {}) {
+  try {
+    const node = FLAT.get(path);
+    if (!opts.keepCurrent) {
+      toast(`Opening ${path.split("/").pop()}…`);
+      const r = await fetch(`${RAW}/${encP(path)}?t=${Date.now()}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      CURRENT = { path, sha: node?.sha ?? null, raw: await r.text() };
+    } else {
+      CURRENT.raw = opts.raw ?? CURRENT.raw ?? "";
+      CURRENT.sha = node?.sha ?? null;
+    }
+    EDITING = false;
+    renderView();
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+let EDITING = false;
+function renderView() {
+  const md = $("md");
+  $("actions").innerHTML = "";
+
+  if (EDITING) {
+    setCrumb(CURRENT.path + " (editing)");
+    md.className = "";
+    md.style.position = "";
+    md.hidden = true;
+
+    let bar = $("editor-bar"), wrap = $("editor-wrap");
+    if (!wrap) {
+      wrap = document.createElement("div"); wrap.id = "editor-wrap";
+      bar = document.createElement("div"); bar.id = "editor-bar";
+      wrap.innerHTML = '<textarea id="editor" spellcheck="false"></textarea>';
+      $("view").appendChild(bar); $("view").appendChild(wrap);
+    }
+    wrap.hidden = false; bar.hidden = false;
+    bar.innerHTML =
+      '<button class="tbtn" id="e-cancel">Cancel</button>' +
+      '<button class="tbtn primary" id="e-save">💾 Save (Ctrl+S)</button>';
+    $("editor").value = CURRENT.raw;
+    $("e-save").onclick = saveEditing;
+    $("e-cancel").onclick = () => { EDITING = false; cleanupEditor(); renderView(); };
+    return;
   }
 
-  if (file) showNote(file);
-  else showList();
+  cleanupEditor();
+  md.hidden = false;
+  md.className = "";
+  md.style.position = "relative";
+  setCrumb(CURRENT?.path);
+  md.innerHTML = marked.parse(CURRENT.raw) + '<button id="btn-edit" title="Edit this file">✏️</button>';
+  $("btn-edit").onclick = startEditing;
+}
+
+function cleanupEditor() {
+  const b = $("editor-bar"), w = $("editor-wrap");
+  if (b) b.remove(); if (w) w.remove();
+}
+
+function startEditing() {
+  if (!CURRENT) return;
+  EDITING = true;
+  renderView();
+}
+
+async function saveEditing() {
+  const text = $("editor").value;
+  try {
+    btnBusy(true);
+    if (CURRENT.isNew) {
+      const dir = SELECTED || ROOT;
+      CURRENT.path = `${dir}/${CURRENT.newName}`;
+    }
+    await putFile(CURRENT.path, text, CURRENT.sha);
+    toast("Saved ✓", "ok");
+    EDITING = false;
+    CURRENT.isNew = false;
+    await refresh();
+    await openFile(CURRENT.path);
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btnBusy(false);
+  }
+}
+function btnBusy(b) {
+  const s = $("e-save");
+  if (s) { s.disabled = b; s.textContent = b ? "Saving…" : "💾 Save (Ctrl+S)"; }
+}
+
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && EDITING) {
+    e.preventDefault(); saveEditing();
+  }
+});
+
+/* ============================== operations =============================== */
+function refresh() { return loadTree().then(renderTree); }
+
+function ask(title, defVal, hint) {
+  return new Promise((resolve) => {
+    $("m-title").textContent = title;
+    $("m-hint").textContent = hint || "";
+    const inp = $("m-input");
+    inp.value = defVal || "";
+    $("modal-bg").style.display = "flex";
+    inp.focus(); inp.select();
+    const done = (v) => {
+      $("modal-bg").style.display = "none";
+      $("m-ok").onclick = null; $("m-cancel").onclick = null; inp.onkeydown = null;
+      resolve(v);
+    };
+    $("m-ok").onclick = () => done(inp.value.trim());
+    $("m-cancel").onclick = () => done(null);
+    inp.onkeydown = (e) => {
+      if (e.key === "Enter") done(inp.value.trim());
+      if (e.key === "Escape") done(null);
+    };
+  });
+}
+
+async function newFile() {
+  const name = await ask("New file (in " + (SELECTED || ROOT).replace(ROOT + "/", "") + "/)", "", "e.g. my-notes.md");
+  if (!name) return;
+  const path = `${SELECTED || ROOT}/${name}`;
+  CURRENT = { path, sha: null, raw: "", isNew: true, newName: name };
+  EDITING = true;
+  renderView();
+  toast("Write something, then Save to commit.", "ok");
+}
+
+async function newFolder() {
+  const name = await ask("New folder (in " + (SELECTED || ROOT).replace(ROOT + "/", "") + "/)", "", "folders are created with a .gitkeep placeholder");
+  if (!name) return;
+  try {
+    await putFile(`${SELECTED || ROOT}/${name}/.gitkeep`, "# placeholder\n");
+    EXPANDED.add(SELECTED || ROOT);
+    await refresh();
+    toast(`Folder "${name}" created ✓`, "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function renameItem(path) {
+  const node = FLAT.get(path);
+  if (!node) return;
+  const newName = await ask(`Rename ${node.type}`, node.name, "");
+  if (!newName || newName === node.name) return;
+  const parent = path.split("/").slice(0, -1).join("/");
+  const target = `${parent}/${newName}`;
+  try {
+    if (node.type === "file") {
+      const r = await fetch(`${RAW}/${encP(path)}`);
+      await putFile(target, await r.text(), node.sha);
+      await delFile(path, node.sha);
+    } else {
+      const files = [...FLAT.values()].filter(
+        (f) => f.type === "file" && f.path.startsWith(path + "/")
+      );
+      if (!files.length) throw new Error("folder is empty in git (only .gitkeep?)");
+      let i = 0;
+      for (const f of files) {
+        i++;
+        toast(`Moving ${i}/${files.length}: ${f.name}…`);
+        const r = await fetch(`${RAW}/${encP(f.path)}`);
+        const np = target + f.path.slice(path.length);
+        await putFile(np, await r.text(), f.sha);
+        await delFile(f.path, f.sha);
+      }
+      if (EXPANDED.has(path)) { EXPANDED.delete(path); EXPANDED.add(target); }
+    }
+    await refresh();
+    toast("Renamed ✓", "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function deleteItem(path) {
+  const node = FLAT.get(path);
+  if (!node) return;
+  const label = node.type === "dir" ? `folder "${node.name}" and EVERYTHING inside` : `"${node.name}"`;
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+  try {
+    if (node.type === "file") {
+      await delFile(path, node.sha);
+    } else {
+      const files = [...FLAT.values()].filter(
+        (f) => f.type === "file" && f.path.startsWith(path + "/")
+      );
+      let i = 0;
+      for (const f of files) {
+        i++;
+        toast(`Deleting ${i}/${files.length}…`);
+        await delFile(f.path, f.sha);
+      }
+      if (CURRENT?.path?.startsWith(path + "/")) showWelcome();
+    }
+    await refresh();
+    toast("Deleted ✓", "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+/* =============================== events ================================== */
+$("tree").addEventListener("click", (e) => {
+  const actBtn = e.target.closest("button[data-act]");
+  if (actBtn) {
+    e.stopPropagation();
+    const p = actBtn.dataset.path;
+    if (actBtn.dataset.act === "rename") renameItem(p);
+    else deleteItem(p);
+    return;
+  }
+  const dirRow = e.target.closest(".row[data-dir]");
+  if (dirRow) {
+    const p = dirRow.dataset.dir;
+    SELECTED = p;
+    EXPANDED.has(p) ? EXPANDED.delete(p) : EXPANDED.add(p);
+    renderTree();
+    return;
+  }
+  const fileRow = e.target.closest(".row[data-file]");
+  if (fileRow) {
+    SELECTED = fileRow.dataset.file.split("/").slice(0, -1).join("/") || ROOT;
+    renderTree();
+    openFile(fileRow.dataset.file);
+    closeMobileSidebar();
+  }
+});
+
+$("b-newfile").onclick = newFile;
+$("b-newdir").onclick = newFolder;
+
+/* token modal reuse */
+$("b-token").onclick = async () => {
+  const t = await ask("GitHub token", TOKEN, "Fine-grained or classic, with Contents: Read & write. Stored only in your browser.");
+  if (t === null) return;
+  TOKEN = t;
+  localStorage.setItem("ffcamp_token", t);
+  tokDot();
+  toast(t ? "Token saved ✓" : "Token cleared", "ok");
+};
+function tokDot() { $("tok-dot").textContent = TOKEN ? " ●" : ""; }
+
+$("burger").onclick = () => $("sidebar").classList.toggle("open");
+function closeMobileSidebar() { if (innerWidth <= 800) $("sidebar").classList.remove("open"); }
+
+let toastTimer;
+function toast(msg, kind) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = kind || "";
+  t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.style.display = "none"), kind === "err" ? 7000 : 3200);
+}
+
+/* ================================ boot =================================== */
+(function boot() {
+  tokDot();
+  const params = new URLSearchParams(location.search);
+  let target = params.get("p");
+  if (!target) { const f = params.get("f"); if (f) target = `${ROOT}/${f}`; }
+
+  loadTree()
+    .then(() => {
+      renderTree();
+      if (target && FLAT.has(target)) {
+        const parts = target.split("/");
+        SELECTED = parts.slice(0, -1).join("/") || ROOT;
+        while (parts.length > 1) { EXPANDED.add(parts.join("/")); parts.pop(); }
+        renderTree();
+        openFile(target);
+      } else if (target) {
+        renderTree();
+        showWelcome();
+        toast(`"${target}" not found`, "err");
+      } else showWelcome();
+    })
+    .catch((e) => {
+      $("tree").innerHTML = `<div class="row" style="color:var(--err)">${esc(e.message)}</div>`;
+      showWelcome();
+    });
 })();
 </script>
 </body>
