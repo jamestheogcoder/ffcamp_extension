@@ -265,17 +265,20 @@ async function summarizePage() {
 
     const pageText = result.page.text.slice(0, MAX_PAGE_CHARS);
 
-    /* MCQs found on the page -> embedded verbatim in Variation 1 */
+    /* MCQs found on the page -> embedded verbatim in Variation 1,
+       formatted as REAL markdown so it stays human-readable */
     let mcqsSection = '';
     const qs = (result.mcqs ?? []).filter((q) => q.options?.length >= 2).slice(0, 30);
     if (qs.length) {
       const list = qs
         .map((q) => {
-          const opts = q.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
-          return `${q.qid + 1}. ${q.text}\n${opts}`;
+          const opts = q.options
+            .map((o, i) => `- **${String.fromCharCode(65+i)}.** ${o}`)
+            .join('\n');
+          return `**Q${q.qid + 1}. ${q.text}**\n\n${opts}`;
         })
         .join('\n\n');
-      mcqsSection = `\n\n### MCQs\n${list}`;
+      mcqsSection = `\n\n### 📝 MCQs on this page\n\n${list}\n`;
     }
 
     currentTitle = result.page.title;
