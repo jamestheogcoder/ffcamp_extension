@@ -11,8 +11,7 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://openrouter.ai/*",
-    "https://api.github.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"

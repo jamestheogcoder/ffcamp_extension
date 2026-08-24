@@ -3,10 +3,10 @@
 /* ============================== constants =============================== */
 
 const DEFAULTS = {
-  openrouterKey: '',
+  openrouterKey: 'Openrouter_api_key',
   model: 'openrouter/free',
-  githubToken: '',
-  repo: '',
+  githubToken: 'github_token',
+  repo: 'repo',
   branch: 'main',
   folder: 'ffcamp-summaries'
 };
@@ -78,27 +78,75 @@ async function saveSettings() {
 
 async function askAI(messages) {
   const s = await getSettings();
-  if (!s.openrouterKey) throw new Error('Add your OpenRouter API key in Settings first.');
+  const key = (s.openrouterKey || '').trim();
+  if (!key) throw new Error('Add your OpenRouter API key in Settings first.');
+
+  const headers = new Headers({
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://github.com/ffcamp-extension',
+    'X-Title': 'FFCamp Extension'
+  });
+  headers.set('Authorization', `Bearer ${key}`);
 
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${s.openrouterKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/ffcamp-extension',
-      'X-Title': 'FFCamp Extension'
-    },
+    headers,
     body: JSON.stringify({ model: s.model, messages })
   });
 
   if (!res.ok) {
     const body = await res.text();
+    if (res.status === 401) {
+      throw new Error(
+        `OpenRouter 401 (${body.slice(0, 120)}...). Your saved key looks wrong - open Settings, re-paste ONLY the sk-or-v1-... string, Save, then hit "Test connections".`
+      );
+    }
     throw new Error(`OpenRouter ${res.status}: ${body.slice(0, 300)}`);
   }
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenRouter returned an empty response.');
   return content.trim();
+}
+
+async function testConnections() {
+  const out = $('test-results');
+  unhide(out);
+  out.textContent = 'Testing...\n';
+  setBusy($('btn-test'), true);
+  const s = await getSettings();
+  const lines = [];
+
+  try {
+    const key = (s.openrouterKey || '').trim();
+    lines.push(`OpenRouter key stored: ${key ? `${key.slice(0, 12)}...${key.slice(-4)} (${key.length} chars)` : 'MISSING'}`);
+    const orRes = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${key}` }
+    });
+    const orBody = await orRes.json().catch(() => ({}));
+    lines.push(
+      `OpenRouter API: ${orRes.ok ? `OK - label "${orBody.data?.label}", used $${orBody.data?.usage ?? 0}` : `FAIL HTTP ${orRes.status} ${JSON.stringify(orBody).slice(0, 150)}`}`
+    );
+
+    lines.push(`GitHub token stored: ${s.githubToken ? `${s.githubToken.slice(0, 9)}... (${s.githubToken.length} chars)` : 'MISSING'}`);
+    lines.push(`Repo setting: ${s.repo || 'MISSING'} | branch: ${s.branch}`);
+    if (/^[\w.-]+\/[\w.-]+$/.test(s.repo)) {
+      const gh = await fetch(`https://api.github.com/repos/${s.repo}`, {
+        headers: { Authorization: `Bearer ${s.githubToken.trim()}` }
+      });
+      const ghBody = await gh.json().catch(() => ({}));
+      lines.push(
+        `GitHub API: ${gh.ok ? `OK - owner "${ghBody.owner?.login}", push access: ${ghBody.permissions?.push}` : `FAIL HTTP ${gh.status} ${ghBody.message ?? ''}`}`
+      );
+    } else {
+      lines.push('GitHub API: SKIPPED - repo must be owner/name');
+    }
+  } catch (err) {
+    lines.push(`Unexpected error: ${err.message}`);
+  }
+
+  out.textContent = lines.join('\n');
+  setBusy($('btn-test'), false);
 }
 
 /* ============================= page summary ============================= */
@@ -369,5 +417,6 @@ $('btn-github').addEventListener('click', saveSummaryToGithub);
 $('btn-download').addEventListener('click', downloadSummary);
 $('btn-solve').addEventListener('click', solveMcq);
 $('btn-save-settings').addEventListener('click', saveSettings);
+$('btn-test').addEventListener('click', testConnections);
 
 getSettings().then(fillSettingsForm);
