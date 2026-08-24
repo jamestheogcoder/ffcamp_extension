@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FFCamp AI</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">FF<span>Camp</span></div>
+    <nav>
+      <button class="tab active" data-tab="summarize">Summarize</button>
+      <button class="tab" data-tab="mcq">MCQ</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ SUMMARIZE ============ -->
+    <section id="tab-summarize" class="panel active">
+      <p class="hint">
+        Turn the current page into structured Markdown study notes and push them
+        to your GitHub repo.
+      </p>
+      <div class="row">
+        <button id="btn-summarize" class="btn primary wide">Summarize this page</button>
+      </div>
+      <div id="sum-status" class="status" hidden></div>
+      <pre id="md-preview" class="preview" hidden></pre>
+      <div id="sum-actions" class="row gap" hidden>
+        <button id="btn-github" class="btn primary grow">Save to GitHub</button>
+        <button id="btn-download" class="btn grow">Download .md</button>
+      </div>
+    </section>
+
+    <!-- ============ MCQ ============ -->
+    <section id="tab-mcq" class="panel">
+      <p class="hint">
+        Paste one or more MCQs (question + options). The AI reasons and picks the
+        best option for each.
+      </p>
+      <textarea
+        id="mcq-input"
+        rows="8"
+        placeholder="1. What is the capital of France?
+A) Berlin
+B) Paris
+C) Rome
+D) Madrid
+
+2. Which data structure uses FIFO order? ..."
+      ></textarea>
+      <div class="row">
+        <button id="btn-solve" class="btn primary wide">Solve</button>
+      </div>
+      <div id="mcq-status" class="status" hidden></div>
+      <div id="mcq-results"></div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="tab-settings" class="panel">
+      <h3>OpenRouter</h3>
+      <label>API key
+        <input id="set-or-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
+      </label>
+      <label>Model
+        <input id="set-model" autocomplete="off" placeholder="openrouter/free" />
+      </label>
+
+      <h3>GitHub</h3>
+      <label>Token (Contents: Read &amp; Write)
+        <input id="set-gh-token" type="password" autocomplete="off" placeholder="github_pat_..." />
+      </label>
+      <label>Repo (owner/name)
+        <input id="set-repo" autocomplete="off" placeholder="yourname/study-notes" />
+      </label>
+      <label>Branch
+        <input id="set-branch" autocomplete="off" placeholder="main" />
+      </label>
+      <label>Folder in repo
+        <input id="set-folder" autocomplete="off" placeholder="ffcamp-summaries" />
+      </label>
+
+      <div class="row">
+        <button id="btn-save-settings" class="btn primary wide">Save settings</button>
+      </div>
+      <span id="settings-status" class="status" hidden></span>
+    </section>
+  </main>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
