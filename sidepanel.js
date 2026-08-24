@@ -281,8 +281,10 @@ async function saveGithub() {
    auto-shown when there are no accounts yet */
 let editorForced = false;
 function applyEditorVisibility(accCount) {
+  const el = $('provider-editor');
+  if (!el) return; // older markup without editor section
   const show = accCount === 0 || editorForced;
-  $('provider-editor').hidden = !show;
+  el.hidden = !show;
 }
 
 /* ============================ accounts list ============================== */
@@ -313,7 +315,8 @@ function renderAccounts() {
 
 function revealEditor() {
   editorForced = true;
-  $('provider-editor').hidden = false;
+  const el = $('provider-editor');
+  if (el) el.hidden = false;
 }
 
 $('acct-list').addEventListener('click', async (e) => {
@@ -1130,12 +1133,13 @@ function showStatus(el, kind, msg) {
 }
 
 function flashStatus(el, kind, msg) {
+  if (!el) return;
   showStatus(el, kind, msg);
   setTimeout(() => hide(el), 2500);
 }
 
 function hide(el) {
-  el.hidden = true;
+  if (el) el.hidden = true;
 }
 function unhide(el) {
   el.hidden = false;
