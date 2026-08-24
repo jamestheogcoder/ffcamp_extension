@@ -102,6 +102,18 @@ async function saveSettings() {
 
 /* ============================== OpenRouter ============================== */
 
+/* strip classifier noise like "User Safety: safe", code fences, and any
+   preamble before the first markdown heading */
+function sanitizeModelOutput(text) {
+  let t = String(text ?? '').trim();
+  const fenced = /^```(?:markdown|md)?\n([\s\S]*?)\n?```$/i.exec(t);
+  if (fenced) t = fenced[1];
+  const h = t.search(/^#{1,3}\s/m);
+  if (h > 0) t = t.slice(h);
+  t = t.replace(/^(?:user\s+)?safety[^\n]*\n+/i, '').trim();
+  return t;
+}
+
 async function askAI(messages, opts = {}) {
   const s = await getSettings();
   const key = (s.openrouterKey || '').trim();
@@ -135,7 +147,7 @@ async function askAI(messages, opts = {}) {
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenRouter returned an empty response.');
-  return content.trim();
+  return sanitizeModelOutput(content.trim());
 }
 
 async function testConnections() {
@@ -214,13 +226,37 @@ async function summarizePage() {
     showStatus($('sum-status'), null, `Asking ${await getModelLabel()} to summarize...`);
 
     currentTitle = result.title;
-    currentMarkdown = await askAI([
-      { role: 'system', content: SUMMARIZE_SYSTEM },
-      {
-        role: 'user',
-        content: `Summarize this page.\n\nTITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}`
-      }
-    ]);
+    let md = await askAI(
+      [
+        { role: 'system', content: SUMMARIZE_SYSTEM },
+        {
+          role: 'user',
+          content: `Summarize this page.\n\nTITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}`
+        }
+      ],
+      { temperature: 0.3 }
+    );
+
+    if (!/^#/.test(md)) {
+      showStatus($('mcq-status'), null, '');
+      showStatus($('sum-status'), null, 'Model added junk before the summary - retrying strict...');
+      md = await askAI(
+        [
+          {
+            role: 'system',
+            content:
+              SUMMARIZE_SYSTEM +
+              '\n\nCRITICAL: The very first characters of your reply MUST be "# ". Output zero words before the markdown heading - no classifications, no safety notes, no commentary.'
+          },
+          {
+            role: 'user',
+            content: `Summarize this page.\n\nTITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}`
+          }
+        ],
+        { temperature: 0 }
+      );
+    }
+    currentMarkdown = md;
 
     const preview = $('md-preview');
     preview.textContent = currentMarkdown;
