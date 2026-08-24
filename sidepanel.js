@@ -57,8 +57,10 @@ const $ = (id) => document.getElementById(id);
 async function getSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
   const merged = { ...DEFAULTS, ...stored };
-  // v1.2.1 migration: old summaries folder -> Pages-served docs path
-  if (merged.folder === 'ffcamp-summaries') {
+  // v1.4.1 migration: legacy/broken folder values -> Pages-served docs path
+  const BAD_FOLDERS = ['', 'ffcamp-summaries', 'ffcamp_extension'];
+  const norm = (merged.folder || '').replace(/^\/+|\/+$/g, '');
+  if (BAD_FOLDERS.includes(norm)) {
     merged.folder = DEFAULTS.folder;
     chrome.storage.local.set({ folder: merged.folder });
   }
