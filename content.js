@@ -217,4 +217,84 @@
     }
     return res;
   };
+
+  /* ---------- workshop / lab pages (code editor + Check Your Code) ------- */
+
+  function findCheckBtn() {
+    return [...document.querySelectorAll("button")]
+      .filter((b) => b.getClientRects().length > 0)
+      .find((b) => /check\s*(your\s*)?\s*code/i.test(clean(b.textContent)));
+  }
+
+  function workshopInstructions() {
+    const sels = [
+      "#description",
+      "[data-playwright-test-label='task-description']",
+      ".lab-description",
+      ".instructions",
+      "article",
+      "main"
+    ];
+    for (const s of sels) {
+      for (const el of document.querySelectorAll(s)) {
+        const t = (el.innerText || "").trim();
+        if (t.length > 60 && !el.querySelector(".cm-editor")) return t.slice(0, 9000);
+      }
+    }
+    return clean(document.body.innerText).slice(0, 8000);
+  }
+
+  window.__ffcampWorkshop = function () {
+    const checkBtn = findCheckBtn();
+    if (!checkBtn) return { isWorkshop: false };
+    return {
+      isWorkshop: true,
+      hasCheckBtn: true,
+      instructions: workshopInstructions(),
+      title: document.title || location.href
+    };
+  };
+
+  /* write code into whichever editor exists (textarea / CM6 / Monaco) */
+  window.__ffcampFillCode = function (code) {
+    // 1) plain textarea
+    const ta = [...document.querySelectorAll("textarea")].find(
+      (t) => t.getClientRects().length > 0
+    );
+    if (ta) {
+      ta.focus();
+      ta.value = code;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
+      return { filled: true, kind: "textarea" };
+    }
+
+    // 2) CodeMirror 6 (.cm-content contenteditable)
+    const cm = document.querySelector(".cm-content[contenteditable='true']");
+    if (cm) {
+      cm.focus();
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, code);
+      return { filled: true, kind: "codemirror" };
+    }
+
+    // 3) Monaco
+    if (window.monaco?.editor) {
+      const model = window.monaco.editor.getModels()[0];
+      if (model) {
+        model.setValue(code);
+        return { filled: true, kind: "monaco" };
+      }
+    }
+
+    return { filled: false };
+  };
+
+  window.__ffcampClickCheck = function () {
+    const b = findCheckBtn();
+    if (!b) return { clicked: false };
+    if (b.scrollIntoView) b.scrollIntoView({ behavior: "smooth", block: "center" });
+    b.click();
+    return { clicked: true };
+  };
 })();

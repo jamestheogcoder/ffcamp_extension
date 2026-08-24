@@ -977,14 +977,14 @@ function clickCheckAnswerButton() {
     ...document.querySelectorAll('button[type="button"], button, [role="button"]')
   ].filter((b) => b.offsetParent !== null || b.getClientRects().length);
 
-  const exact = ['check your answer', 'check answer'];
+  const exact = ['check your answer', 'check answer', 'check your code'];
   let target = null;
   for (const phrase of exact) {
     target = buttons.find((b) => b.textContent.trim().toLowerCase() === phrase);
     if (target) break;
   }
   if (!target) {
-    const re = /check\s*(your\s*)?answer|^check$|^submit$|^verify$/i;
+    const re = /check\s*(your\s*)?(answer|code)|^check\b|^submit$|^verify$/i;
     target = buttons.find((b) => re.test(b.textContent.trim()));
   }
   if (!target) return { clicked: false };
@@ -996,7 +996,7 @@ function clickCheckAnswerButton() {
 
 /* injected into the page; must be self-contained */
 function probeAndClickSubmitNext(shouldClick) {
-  const re = /submit\s*and\s*go\s*to\s*next|go\s*to\s*next\s*challenge/i;
+  const re = /submit\s*and\s*(go\s*to\s*next|continue)|go\s*to\s*next\s*challenge/i;
   const buttons = [
     ...document.querySelectorAll('button[type="button"], button, [role="button"]')
   ].filter((b) => b.getClientRects().length > 0);
@@ -1205,8 +1205,21 @@ function mcqCard(item) {
   return card;
 }
 
-function parseAnswers(raw) {
-  let t = String(raw ?? '').replace(/```(?:json)?/gi, '');
+function parseLooseObject(raw) {
+  const t = String(raw ?? '').replace(/```(?:json)?/gi, '');
+  try {
+    return JSON.parse(t);
+  } catch {}
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      return JSON.parse(m[0]);
+    } catch {}
+  }
+  return null;
+}
+
+function parseAnswers(raw) {  let t = String(raw ?? '').replace(/```(?:json)?/gi, '');
 
   // direct array / wrapped-object attempts
   const attempts = [t];
@@ -1471,6 +1484,96 @@ async function autoPilot() {
       plog(`[${seen}] saving to GitHub…`);
       await saveSummaryToGithub();
 
+      /* ---------- workshop/lab? classify difficulty, solve if easy ------ */
+      const [{ result: ws }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () =>
+          typeof window.__ffcampWorkshop === 'function'
+            ? window.__ffcampWorkshop()
+            : { isWorkshop: false }
+      });
+
+      if (ws?.isWorkshop && ws.hasCheckBtn) {
+        plog(`[${seen}] workshop detected — asking AI how hard it is…`);
+        const verdictRaw = await askAI(
+          [
+            {
+              role: 'system',
+              content:
+                'You classify beginner coding tasks. Reply ONLY valid JSON: {"difficulty":"easy"|"hard","reason":"one short sentence"}. Easy = solvable with basic syntax from the lesson text alone.'
+            },
+            { role: 'user', content: ws.instructions.slice(0, 6000) }
+          ],
+          { temperature: 0 }
+        );
+        const v = parseLooseObject(verdictRaw) || {};
+        const diff = String(v.difficulty || 'easy').toLowerCase();
+        plog(`[${seen}] AI verdict: ${diff}${v.reason ? ` — ${v.reason}` : ''}`);
+
+        if (!diff.includes('easy')) {
+          plog(`[${seen}] judged HARD — skipping this workshop.`, 'err');
+          continue;
+        }
+
+        plog(`[${seen}] easy — generating code…`);
+        let codeAns = await askAI(
+          [
+            {
+              role: 'system',
+              content:
+                'You complete beginner JavaScript tasks. Output ONLY the final JavaScript code that satisfies the task. No explanations, no markdown fences, no comments unless required.'
+            },
+            { role: 'user', content: `Task:\n${ws.instructions.slice(0, 6000)}\n\nWrite only the final code.` }
+          ],
+          { temperature: 0 }
+        );
+        codeAns = codeAns.replace(/```(?:js|javascript)?\n?/gi, '').trim();
+        logLine(`🧑‍💻 workshop "${currentTitle}" → generated ${codeAns.split('\n').length} line(s) of code`, 'info');
+
+        const [{ result: fill }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (c) =>
+            typeof window.__ffcampFillCode === 'function'
+              ? window.__ffcampFillCode(c)
+              : { filled: false },
+          args: [codeAns]
+        });
+        if (!fill?.filled) {
+          plog(`[${seen}] could not write into the editor — skipping.`, 'err');
+          continue;
+        }
+
+        /* human pause before checking */
+        const preWait = randMs();
+        plog(`code written (${fill.kind}) — checking in ${Math.round(preWait / 1000)}s…`);
+        await sleepMs(preWait);
+
+        const [{ result: chk }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () =>
+            typeof window.__ffcampClickCheck === 'function'
+              ? window.__ffcampClickCheck()
+              : { clicked: false }
+        });
+
+        if (!chk?.clicked) {
+          plog(`[${seen}] Check button not found — skipping.`, 'err');
+          continue;
+        }
+
+        /* tests run; then Submit-and-continue chain handles the rest */
+        await sleepMs(2500);
+        plog(`[${seen}] checked ✓ waiting for submit-and-continue…`);
+        await pressNextOnPage();
+
+        plog(`[${seen}] workshop done ✓`);
+        const breather = randMs();
+        plog(`taking a ${Math.round(breather / 1000)}s breather…`);
+        await sleepMs(breather);
+        continue;
+      }
+
+      /* ---------- MCQ path (non-workshop pages) -------------------------- */
       plog(`[${seen}] answering MCQs…`);
       await autoSolvePage();
 
