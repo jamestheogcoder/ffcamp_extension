@@ -142,16 +142,19 @@ async function saveSettings() {
 
 /* ============================== OpenRouter ============================== */
 
-/* strip classifier noise like "User Safety: safe", code fences, and any
-   preamble before the first markdown heading */
+/* strip classifier noise like "User Safety: safe", lone verdict lines,
+   code fences, and any preamble before the first markdown heading */
 function sanitizeModelOutput(text) {
-  let t = String(text ?? '').trim();
+  let t = String(text ?? "").trim();
   const fenced = /^```(?:markdown|md)?\n([\s\S]*?)\n?```$/i.exec(t);
   if (fenced) t = fenced[1];
+  t = t
+    .replace(/^\s*\*{0,2}(?:user\s+)?safety\b[^#\n]*$/gim, "")
+    .replace(/^\s*(?:safe|unsafe|clean|harmless)\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n");
   const h = t.search(/^#{1,3}\s/m);
   if (h > 0) t = t.slice(h);
-  t = t.replace(/^(?:user\s+)?safety[^\n]*\n+/i, '').trim();
-  return t;
+  return t.trim();
 }
 
 async function askAI(messages, opts = {}) {

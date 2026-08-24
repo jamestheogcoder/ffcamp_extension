@@ -224,12 +224,23 @@ const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
 const SPLIT = "<!--FFCAMP-SPLIT-->";
 
+/* scrub classifier junk ("User Safety: safe", lone verdicts) from any note */
+function scrub(t) {
+  return String(t || "")
+    .replace(/^\s*\*{0,2}(?:user\s+)?safety\b[^#\n]*$/gim, "")
+    .replace(/^\s*(?:safe|unsafe|clean|harmless)\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 let TOKEN = localStorage.getItem("ffcamp_token") || "";
 let TREE = null;
 let FLAT = new Map();
 let EXPANDED = new Set([ROOT]);
 let SELECTED = ROOT;
 let CURRENT = null;
+let DATES = new Map();   // path -> last commit ISO date
+let datesBusy = false;
 
 /* ================================ github ================================= */
 function hdrs(extra = {}) {
@@ -295,9 +306,17 @@ async function loadTree() {
   }
 
   const sortRec = (n) => {
-    n.children.sort((a, b) =>
-      a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name)
-    );
+    n.children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+      if (a.type === "file") {
+        const da = DATES.get(a.path), db = DATES.get(b.path);
+        if (da || db) {
+          const ta = da ? Date.parse(da) : 0, tb = db ? Date.parse(db) : 0;
+          if (ta !== tb) return tb - ta; // newest first
+        }
+      }
+      return a.name.localeCompare(b.name);
+    });
     n.children.forEach((c) => c.type === "dir" && sortRec(c));
   };
   sortRec(rootNode);
@@ -404,10 +423,10 @@ let EDITING = false;
   /* split into Original Content box + AI Summary box
      (new format uses <!--FFCAMP-SPLIT-->; legacy notes are detected via
      the analysis heading or a --- rule) */
-  function splitVariations(raw) {
+  function splitVariations(rawRaw) {
+    const raw = scrub(rawRaw);
     const idx = raw.indexOf(SPLIT);
-    if (idx >= 0)
-      return [raw.slice(0, idx), raw.slice(idx + SPLIT.length)];
+    if (idx >= 0) return [raw.slice(0, idx), raw.slice(idx + SPLIT.length)];
     const aiIdx = raw.search(/^## What the topic is explaining/m);
     if (aiIdx > 0) return [raw.slice(0, aiIdx), raw.slice(aiIdx)];
     const hr = raw.indexOf("\n---\n");
@@ -499,7 +518,29 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ============================== operations =============================== */
-function refresh() { return loadTree().then(renderTree); }
+function refresh() {
+  datesBusy = false; // re-hydrate dates for newly added files
+  return loadTree().then(renderTree).then(hydrateDates);
+}
+
+/* fetch last-commit date per file (newest-first sorting) */
+async function hydrateDates() {
+  if (datesBusy || !FLAT.size) return;
+  datesBusy = true;
+  const files = [...FLAT.values()].filter((f) => f.type === "file" && f.path.startsWith(ROOT + "/"));
+  for (const f of files) {
+    if (DATES.has(f.path)) continue;
+    try {
+      const arr = await apiJson(`${API}/commits?path=${encodeURIComponent(f.path)}&per_page=1`);
+      if (arr && arr[0]) DATES.set(f.path, arr[0].commit.author.date);
+    } catch (e) {
+      break; // rate-limited or offline: keep alpha order quietly
+    }
+  }
+  datesBusy = false;
+  await loadTree();
+  renderTree();
+}
 
 function ask(title, defVal, hint) {
   return new Promise((resolve) => {
@@ -657,6 +698,7 @@ function toast(msg, kind) {
   loadTree()
     .then(() => {
       renderTree();
+      hydrateDates();
       if (target && FLAT.has(target)) {
         const parts = target.split("/");
         SELECTED = parts.slice(0, -1).join("/") || ROOT;
