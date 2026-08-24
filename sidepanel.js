@@ -3,12 +3,36 @@
 /* ============================== constants =============================== */
 
 const DEFAULTS = {
-  openrouterKey: '',
+  cat: 'openai',            // 'openai' (OpenAI-compatible) | 'anthropic'
+  presetId: 'openrouter',
+  baseUrl: 'https://openrouter.ai/api/v1',
+  apiKey: '',
   model: 'openrouter/free',
   githubToken: '',
   repo: '',
   branch: 'main',
   folder: 'docs/summaries'
+};
+
+const PRESETS = {
+  openai: [
+    { id: 'openrouter', name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',
+      models: ['openrouter/free', 'meta-llama/llama-3.3-70b-instruct:free', 'deepseek/deepseek-r1:free', 'google/gemma-3-12b-it:free'] },
+    { id: 'openai', name: 'OpenAI', url: 'https://api.openai.com/v1',
+      models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'] },
+    { id: 'groq', name: 'Groq', url: 'https://api.groq.com/openai/v1',
+      models: ['llama-3.3-70b-versatile'] },
+    { id: 'deepseek', name: 'DeepSeek', url: 'https://api.deepseek.com/v1',
+      models: ['deepseek-chat', 'deepseek-reasoner'] },
+    { id: 'ollama', name: 'Ollama (local)', url: 'http://localhost:11434/v1',
+      models: ['llama3.2', 'qwen2.5'] },
+    { id: 'custom', name: 'Custom…', url: '', models: [] }
+  ],
+  anthropic: [
+    { id: 'anthropic', name: 'Anthropic', url: 'https://api.anthropic.com/v1',
+      models: ['claude-sonnet-4-5', 'claude-haiku-4-5'] },
+    { id: 'custom', name: 'Custom…', url: '', models: [] }
+  ]
 };
 
 const MAX_PAGE_CHARS = 60000;
@@ -91,9 +115,23 @@ const $ = (id) => document.getElementById(id);
 /* =============================== settings =============================== */
 
 async function getSettings() {
-  const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
+  const stored = await chrome.storage.local.get(null);
   const merged = { ...DEFAULTS, ...stored };
-  // v1.4.1 migration: legacy/broken folder values -> Pages-served docs path
+
+  /* v1.7.0 migration: old single-provider keys -> new provider fields */
+  if (!stored.baseUrl && stored.openrouterKey) {
+    merged.cat = merged.cat || 'openai';
+    merged.presetId = merged.presetId && stored.presetId ? merged.presetId : 'openrouter';
+    merged.baseUrl = stored.baseUrl || 'https://openrouter.ai/api/v1';
+    if (!merged.apiKey) merged.apiKey = stored.openrouterKey;
+    if (stored.model && (!merged.model || merged.model === DEFAULTS.model)) merged.model = stored.model;
+    chrome.storage.local.set({
+      cat: merged.cat, presetId: merged.presetId, baseUrl: merged.baseUrl,
+      apiKey: merged.apiKey, model: merged.model
+    });
+  }
+
+  // legacy/broken folder values -> Pages-served docs path
   const BAD_FOLDERS = ['', 'ffcamp-summaries', 'ffcamp_extension'];
   const norm = (merged.folder || '').replace(/^\/+|\/+$/g, '');
   if (BAD_FOLDERS.includes(norm)) {
@@ -104,7 +142,12 @@ async function getSettings() {
 }
 
 function fillSettingsForm(s) {
-  $('set-or-key').value = s.openrouterKey;
+  document.querySelectorAll('.ptab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.cat === s.cat)
+  );
+  fillPresetSelect(s.cat, s.presetId);
+  $('set-base').value = s.baseUrl;
+  $('set-prov-key').value = s.apiKey;
   $('set-model').value = s.model;
   $('set-gh-token').value = s.githubToken;
   $('set-repo').value = s.repo;
@@ -112,9 +155,47 @@ function fillSettingsForm(s) {
   $('set-folder').value = s.folder;
 }
 
+function fillPresetSelect(cat, presetId) {
+  const sel = $('set-base-select');
+  sel.innerHTML = PRESETS[cat]
+    .map((p) => `<option value="${p.id}">${p.name}</option>`)
+    .join('');
+  sel.value = PRESETS[cat].some((p) => p.id === presetId) ? presetId : 'custom';
+  applyPreset(sel.value);
+}
+
+function applyPreset(pid) {
+  const cat = currentCat();
+  const p = PRESETS[cat].find((x) => x.id === pid) || PRESETS[cat].at(-1);
+  const baseInput = $('set-base');
+  if (p.url) {
+    baseInput.value = p.url;
+    baseInput.readOnly = true;
+  } else {
+    baseInput.value = '';
+    baseInput.readOnly = false;
+    baseInput.placeholder = 'https://your-endpoint/v1';
+  }
+  $('set-model').setAttribute('list', `models-${cat}-${pid}`);
+  let dl = $(`models-${cat}-${pid}`);
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = `models-${cat}-${pid}`;
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = p.models.map((m) => `<option value="${m}">`).join('');
+}
+
+function currentCat() {
+  return document.querySelector('.ptab.active')?.dataset.cat || 'openai';
+}
+
 async function saveSettings() {
   const values = {
-    openrouterKey: $('set-or-key').value.trim(),
+    cat: currentCat(),
+    presetId: $('set-base-select').value,
+    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
+    apiKey: $('set-prov-key').value.trim(),
     model: $('set-model').value.trim() || DEFAULTS.model,
     githubToken: $('set-gh-token').value.trim(),
     repo: $('set-repo').value.trim(),
@@ -124,9 +205,8 @@ async function saveSettings() {
   await chrome.storage.local.set(values);
 
   const warnings = [];
-  if (values.openrouterKey && !values.openrouterKey.startsWith('sk-or-v1-')) {
-    warnings.push('⚠️ That does not look like an OpenRouter key - it should start with "sk-or-v1-".');
-  }
+  if (!values.apiKey) warnings.push('⚠️ No API key set yet.');
+  if (!values.baseUrl) warnings.push('⚠️ Base URL is empty.');
   if (values.githubToken && !/^(ghp_|github_pat_|gho_)/.test(values.githubToken)) {
     warnings.push('⚠️ That does not look like a GitHub token (expected ghp_/github_pat_/gho_).');
   }
@@ -136,11 +216,11 @@ async function saveSettings() {
   flashStatus(
     $('settings-status'),
     warnings.length ? 'err' : 'ok',
-    warnings.length ? warnings.join(' ') : 'Settings saved.'
+    warnings.length ? warnings.join(' ') : `Saved · ${values.cat === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible'} · ${values.model}`
   );
 }
 
-/* ============================== OpenRouter ============================== */
+/* ============================== AI calls ================================ */
 
 /* strip classifier noise like "User Safety: safe", lone verdict lines,
    code fences, and any preamble before the first markdown heading */
@@ -159,38 +239,84 @@ function sanitizeModelOutput(text) {
 
 async function askAI(messages, opts = {}) {
   const s = await getSettings();
-  const key = (s.openrouterKey || '').trim();
-  if (!key) throw new Error('Add your OpenRouter API key in Settings first.');
+  const key = (s.apiKey || '').trim();
+  const base = (s.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!key) throw new Error(`No API key set - open Settings (${s.cat === 'anthropic' ? 'Anthropic-Compatible' : 'OpenAI-Compatible'}) and add one.`);
+  if (!base) throw new Error('No base URL set in Settings.');
 
+  if (s.cat === 'anthropic') return anthropicChat(s, base, key, messages, opts);
+  return openaiChat(s, base, key, messages, opts);
+}
+
+/* OpenAI-compatible: OpenRouter / OpenAI / Groq / DeepSeek / Ollama / custom */
+async function openaiChat(s, base, key, messages, opts) {
   const headers = new Headers({
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${key}`,
     'HTTP-Referer': 'https://github.com/ffcamp-extension',
     'X-Title': 'FFCamp Extension'
   });
-  headers.set('Authorization', `Bearer ${key}`);
 
   const body = { model: s.model, messages };
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body)
   });
-
-  if (!res.ok) {
-    const body = await res.text();
-    if (res.status === 401) {
-      throw new Error(
-        `OpenRouter 401 (${body.slice(0, 120)}...). Your saved key looks wrong - open Settings, re-paste ONLY the sk-or-v1-... string, Save, then hit "Test connections".`
-      );
-    }
-    throw new Error(`OpenRouter ${res.status}: ${body.slice(0, 300)}`);
-  }
+  if (!res.ok) throw await apiError(res, 'OpenAI-compatible');
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('OpenRouter returned an empty response.');
+  const content =
+    data.choices?.[0]?.message?.content ??
+    (Array.isArray(data.choices?.[0]?.message?.content)
+      ? data.choices[0].message.content.map((c) => c.text || '').join('')
+      : null);
+  if (!content) throw new Error('Provider returned an empty response.');
+  return sanitizeModelOutput(String(content).trim());
+}
+
+/* Anthropic-compatible: Claude & anything speaking /messages */
+async function anthropicChat(s, base, key, messages, opts) {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n\n');
+  const rest = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  const body = { model: s.model, max_tokens: opts.maxTokens ?? 8192, messages: rest };
+  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+  if (system) body.system = system;
+
+  const res = await fetch(`${base}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw await apiError(res, 'Anthropic-compatible');
+  const data = await res.json();
+  const content = (data.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+  if (!content) throw new Error('Provider returned an empty response.');
   return sanitizeModelOutput(content.trim());
+}
+
+async function apiError(res, label) {
+  const text = await res.text().catch(() => '');
+  if (res.status === 401 || res.status === 403) {
+    return new Error(
+      `${label} ${res.status} - authentication failed. Check the API key in Settings ("${text.slice(0, 100)}").`
+    );
+  }
+  return new Error(`${label} ${res.status}: ${text.slice(0, 300)}`);
 }
 
 async function testConnections() {
@@ -200,21 +326,29 @@ async function testConnections() {
   setBusy($('btn-test'), true);
   const s = await getSettings();
   const lines = [];
+  const key = (s.apiKey || '').trim();
 
   try {
-    const key = (s.openrouterKey || '').trim();
-    const keyLooksValid = /^sk-or-v1-[\w-]+$/.test(key);
     lines.push(
-      `OpenRouter key stored: ${key ? `${key.slice(0, 12)}...${key.slice(-4)} (${key.length} chars) ${keyLooksValid ? '[format OK]' : '❌ WRONG FORMAT - must start with sk-or-v1-'}` : 'MISSING'}`
+      `Provider : ${s.cat === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible'} · preset "${s.presetId}"`
     );
-    const orRes = await fetch('https://openrouter.ai/api/v1/key', {
-      headers: { Authorization: `Bearer ${key}` }
-    });
-    const orBody = await orRes.json().catch(() => ({}));
+    lines.push(`Base URL : ${s.baseUrl}`);
     lines.push(
-      `OpenRouter API: ${orRes.ok ? `OK - label "${orBody.data?.label}", used $${orBody.data?.usage ?? 0}` : `FAIL HTTP ${orRes.status} ${JSON.stringify(orBody).slice(0, 150)}`}`
+      `API key  : ${key ? `${key.slice(0, 8)}...${key.slice(-4)} (${key.length} chars)` : 'MISSING ❌'}`
     );
+    lines.push(`Model    : ${s.model}`);
 
+    /* tiny live ping through the exact code path askAI uses */
+    try {
+      const reply = await askAI([{ role: 'user', content: 'Reply with exactly: OK' }], {
+        temperature: 0
+      });
+      lines.push(`AI ping  : OK - replied "${reply.slice(0, 40)}"`);
+    } catch (e) {
+      lines.push(`AI ping  : FAILED - ${e.message.slice(0, 180)}`);
+    }
+
+    lines.push('');
     lines.push(`GitHub token stored: ${s.githubToken ? `${s.githubToken.slice(0, 9)}... (${s.githubToken.length} chars)` : 'MISSING'}`);
     lines.push(`Repo setting: ${s.repo || 'MISSING'} | branch: ${s.branch}`);
     if (/^[\w.-]+\/[\w.-]+$/.test(s.repo)) {
@@ -803,6 +937,17 @@ document.querySelectorAll('.tab').forEach((tabBtn) => {
     $(`tab-${tabBtn.dataset.tab}`).classList.add('active');
   });
 });
+
+document.querySelectorAll('.ptab').forEach((tabBtn) => {
+  tabBtn.addEventListener('click', () => {
+    document.querySelectorAll('.ptab').forEach((t) => t.classList.remove('active'));
+    tabBtn.classList.add('active');
+    const cat = tabBtn.dataset.cat;
+    const first = PRESETS[cat][0];
+    fillPresetSelect(cat, first.id);
+  });
+});
+$('set-base-select').addEventListener('change', (e) => applyPreset(e.target.value));
 
 $('btn-summarize').addEventListener('click', summarizePage);
 $('btn-github').addEventListener('click', saveSummaryToGithub);

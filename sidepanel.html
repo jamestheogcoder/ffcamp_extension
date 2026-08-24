@@ -64,12 +64,22 @@ D) Madrid
 
     <!-- ============ SETTINGS ============ -->
     <section id="tab-settings" class="panel">
-      <h3>OpenRouter</h3>
+      <h3>AI Provider</h3>
+      <div class="ptabs">
+        <button class="ptab active" data-cat="openai">OpenAI-Compatible</button>
+        <button class="ptab" data-cat="anthropic">Anthropic-Compatible</button>
+      </div>
+      <label>Preset / endpoint
+        <select id="set-base-select"></select>
+      </label>
+      <label>Base URL
+        <input id="set-base" autocomplete="off" placeholder="https://.../v1" />
+      </label>
       <label>API key
-        <input id="set-or-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
+        <input id="set-prov-key" type="password" autocomplete="off" placeholder="paste your key" />
       </label>
       <label>Model
-        <input id="set-model" autocomplete="off" placeholder="openrouter/free" />
+        <input id="set-model" autocomplete="off" list="" placeholder="provider/model-id" />
       </label>
 
       <h3>GitHub</h3>
