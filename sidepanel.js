@@ -136,26 +136,20 @@ async function getSettings() {
           model: stored.model || DEFAULTS.model
         }]
       : [];
-    if (!merged.accounts.length && !legacyKey) {
-      merged.accounts = [{
-        id: uid(), enabled: true, cat: 'openai', presetId: 'openrouter',
-        baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
-      }];
-    }
-    merged.activeId = merged.accounts[0].id;
+    merged.activeId = merged.accounts[0]?.id || '';
     chrome.storage.local.set({ accounts: merged.accounts, activeId: merged.activeId });
   }
-  if (!merged.accounts.length) {
-    merged.accounts = [{ id: uid(), enabled: false, cat: 'openai', presetId: 'custom', baseUrl: '', apiKey: '', model: '' }];
-  }
-  let act = merged.accounts.find((a) => a.id === merged.activeId) || merged.accounts[0];
-  merged.activeId = act.id;
+  const act =
+    merged.accounts.find((a) => a.id === merged.activeId) || merged.accounts[0] || null;
+  if (act) merged.activeId = act.id;
 
   /* derive flat mirrors so all existing code paths keep working */
-  Object.assign(merged, {
-    cat: act.cat, presetId: act.presetId, baseUrl: act.baseUrl,
-    apiKey: act.apiKey, model: act.model
-  });
+  if (act) {
+    Object.assign(merged, {
+      cat: act.cat, presetId: act.presetId, baseUrl: act.baseUrl,
+      apiKey: act.apiKey, model: act.model
+    });
+  }
 
   // legacy/broken folder values -> Pages-served docs path
   const BAD_FOLDERS = ['', 'ffcamp-summaries', 'ffcamp_extension'];
@@ -220,38 +214,71 @@ function currentCat() {
   return document.querySelector('.ptab.active')?.dataset.cat || 'openai';
 }
 
+function formValues() {
+  return {
+    cat: currentCat(),
+    presetId: $('set-base-select').value,
+    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
+    apiKey: $('set-prov-key').value.trim(),
+    model: $('set-model').value.trim() || DEFAULTS.model
+  };
+}
+
+/* write the form into the account the editor is editing */
+function applyForm(accounts, activeId) {
+  if (!accounts.length) return accounts;
+  const i = accounts.findIndex((a) => a.id === activeId);
+  const j = i >= 0 ? i : 0;
+  accounts[j] = { ...accounts[j], ...formValues() };
+  return accounts;
+}
+
 async function saveSettings() {
-  const stored = await getSettings();
-  const accounts = (stored.accounts || []).map((a) => ({ ...a }));
-  let act = accounts.find((a) => a.id === stored.activeId) || accounts[0];
-  if (!act) {
-    act = { id: uid(), enabled: true };
-    accounts.push(act);
+  try {
+    const stored = await getSettings();
+    let accounts = (stored.accounts || []).map((a) => ({ ...a }));
+
+    if (!accounts.length || !stored.activeId) {
+      /* nothing selected: Save acts as "create first account" */
+      const v = formValues();
+      accounts = [{ id: uid(), enabled: true, ...v }];
+      await persistAccounts(accounts, accounts[0].id);
+      logLine(`💾 CREATED first account "${v.presetId}:${v.model}" @ ${v.baseUrl} · key ${maskKey(v.apiKey)}`, 'ok');
+      flashStatus($('settings-status'), 'ok', `Account created · ${v.model}`);
+      editorForced = false;
+      renderAccounts();
+      applyEditorVisibility((await getSettings()).accounts.length);
+      return;
+    }
+
+    accounts = applyForm(accounts, stored.activeId);
+    const act = accounts.find((a) => a.id === stored.activeId);
+
+    await persistAccounts(accounts, act.id);
+
+    const warnings = [];
+    if (!act.apiKey) warnings.push('⚠️ Active account has no API key.');
+    if (!act.baseUrl) warnings.push('⚠️ Base URL is empty.');
+
+    const enabled = accounts.filter((a) => a.enabled !== false).length;
+    logLine(
+      `💾 SAVED "${act.presetId}:${act.model}" @ ${act.baseUrl} · key ${maskKey(act.apiKey)} · ${enabled} racing`,
+      'ok'
+    );
+    flashStatus(
+      $('settings-status'),
+      warnings.length ? 'err' : 'ok',
+      warnings.length
+        ? warnings.join(' ')
+        : `✅ Saved "${act.presetId}:${act.model}" · ${enabled} racing ⚡ — add another or pick from the list`
+    );
+    editorForced = false; // back to the list view
+    renderAccounts();
+    applyEditorVisibility(accounts.length);
+  } catch (e) {
+    flashStatus($('settings-status'), 'err', `❌ Save failed: ${e.message}`);
+    logLine(`❌ SAVE failed — ${e.message}`, 'err');
   }
-
-  /* form -> active account */
-  act.cat = currentCat();
-  act.presetId = $('set-base-select').value;
-  act.baseUrl = $('set-base').value.trim().replace(/\/+$/, '');
-  act.apiKey = $('set-prov-key').value.trim();
-  act.model = $('set-model').value.trim() || DEFAULTS.model;
-
-  await chrome.storage.local.set({ accounts, activeId: act.id });
-
-  const warnings = [];
-  if (!act.apiKey) warnings.push('⚠️ Active account has no API key.');
-  if (!act.baseUrl) warnings.push('⚠️ Base URL is empty.');
-  const enabled = accounts.filter((a) => a.enabled !== false).length;
-  logLine(`💾 SAVED account "${act.presetId}:${act.model}" @ ${act.baseUrl} · key ${maskKey(act.apiKey)} · ${enabled} racing`, 'ok');
-  flashStatus(
-    $('settings-status'),
-    warnings.length ? 'err' : 'ok',
-    warnings.length
-      ? warnings.join(' ')
-      : `Saved · "${act.presetId}:${act.model}" · ${enabled} account(s) racing ⚡`
-  );
-  editorForced = false; // back to the list view, ready to add another
-  renderAccounts();
 }
 
 async function saveGithub() {
@@ -361,22 +388,31 @@ $('acct-list').addEventListener('change', async (e) => {
 });
 
 $('b-acct-add').addEventListener('click', async () => {
-  const s = await getSettings();
-  const acct = {
-    id: uid(), enabled: true,
-    cat: 'openai', presetId: 'openrouter',
-    baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
-  };
-  const accounts = [...(s.accounts || []), acct];
-  await persistAccounts(accounts, acct.id);
-  fillSettingsForm(await getSettings());
-  renderAccounts();
-  revealEditor();
-  flashStatus(
-    $('settings-status'),
-    null,
-    'Pick OpenAI-Compatible or Anthropic-Compatible, paste key + model, then “Save account”.'
-  );
+  try {
+    const stored = await getSettings();
+    let accounts = (stored.accounts || []).map((a) => ({ ...a }));
+
+    /* commit any unsaved form edits to the currently selected account first,
+       so nothing the user typed can be lost */
+    if (stored.activeId && accounts.length && $('provider-editor')?.hidden === false) {
+      accounts = applyForm(accounts, stored.activeId);
+    }
+
+    const acct = {
+      id: uid(), enabled: true,
+      cat: 'openai', presetId: 'openrouter',
+      baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
+    };
+    accounts.push(acct);
+    await persistAccounts(accounts, acct.id);
+    fillSettingsForm(await getSettings());
+    renderAccounts();
+    revealEditor();
+    logLine(`➕ New account slot added (${accounts.length} total). Configure it, then Save account.`, 'info');
+    flashStatus($('settings-status'), null, 'New slot added below — configure and press “Save account”.');
+  } catch (e) {
+    flashStatus($('settings-status'), 'err', `❌ Add failed: ${e.message}`);
+  }
 });
 
 /* ============================== AI calls ================================ */
