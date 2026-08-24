@@ -255,11 +255,17 @@
     };
   };
 
-  /* write code into whichever editor exists (textarea / CM6 / Monaco) */
-  window.__ffcampFillCode = function (code) {
-    // 1) plain textarea
+  /* write code into whichever editor exists
+     order: plain textarea -> monaco global -> monaco DOM -> CodeMirror 6 */
+  window.__ffcampFillCode = async function (code) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // 1) plain textarea (NOT Monaco's hidden inputarea)
     const ta = [...document.querySelectorAll("textarea")].find(
-      (t) => t.getClientRects().length > 0
+      (t) =>
+        t.getClientRects().length > 0 &&
+        !t.closest(".monaco-editor") &&
+        !t.closest(".cm-editor")
     );
     if (ta) {
       ta.focus();
@@ -269,22 +275,71 @@
       return { filled: true, kind: "textarea" };
     }
 
-    // 2) CodeMirror 6 (.cm-content contenteditable)
-    const cm = document.querySelector(".cm-content[contenteditable='true']");
-    if (cm) {
-      cm.focus();
-      document.execCommand("selectAll", false, null);
-      document.execCommand("insertText", false, code);
-      return { filled: true, kind: "codemirror" };
-    }
-
-    // 3) Monaco
+    // 2) Monaco with global exposed
     if (window.monaco?.editor) {
       const model = window.monaco.editor.getModels()[0];
       if (model) {
         model.setValue(code);
         return { filled: true, kind: "monaco" };
       }
+    }
+
+    // 3) Monaco via DOM (bundled builds don't expose window.monaco)
+    const ed = document.querySelector(".monaco-editor");
+    if (ed && ed.getClientRects().length > 0) {
+      const inputarea =
+        ed.querySelector(".inputarea") ||
+        ed.querySelector(".view-lines") ||
+        ed;
+
+      // attempt A: real typing through the hidden input area
+      inputarea.focus();
+      try {
+        document.execCommand("selectAll", false, null);
+        document.execCommand("insertText", false, code);
+      } catch {}
+
+      const firstLine = code.split("\n")[0].trim().slice(0, 25);
+      const typedOk = () =>
+        (ed.querySelector(".view-lines")?.innerText || "")
+          .replace(/\u00a0/g, " ")
+          .includes(firstLine);
+
+      await sleep(200);
+      if (typedOk()) return { filled: true, kind: "monaco-dom-typed" };
+
+      // attempt B: synthetic paste event
+      try {
+        const dt = new DataTransfer();
+        dt.setData("text/plain", code);
+        targetPaste: {
+          const evTarget =
+            ed.querySelector(".inputarea") ||
+            ed.querySelector(".view-lines") ||
+            ed;
+          evTarget.dispatchEvent(
+            new ClipboardEvent("paste", {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true
+            })
+          );
+          break targetPaste;
+        }
+      } catch {}
+      await sleep(250);
+      if (typedOk()) return { filled: true, kind: "monaco-dom-paste" };
+
+      return { filled: false, kind: "monaco-unknown" };
+    }
+
+    // 4) CodeMirror 6
+    const cm = document.querySelector(".cm-content[contenteditable='true']");
+    if (cm) {
+      cm.focus();
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, code);
+      return { filled: true, kind: "codemirror" };
     }
 
     return { filled: false };
