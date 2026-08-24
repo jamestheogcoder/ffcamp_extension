@@ -379,6 +379,54 @@ async function autoSolvePage() {
 }
 
 /* injected into the page; must be self-contained */
+function clickCheckAnswerButton() {
+  const buttons = [
+    ...document.querySelectorAll('button[type="button"], button, [role="button"]')
+  ].filter((b) => b.offsetParent !== null || b.getClientRects().length);
+
+  const exact = ['check your answer', 'check answer'];
+  let target = null;
+  for (const phrase of exact) {
+    target = buttons.find((b) => b.textContent.trim().toLowerCase() === phrase);
+    if (target) break;
+  }
+  if (!target) {
+    const re = /check\s*(your\s*)?answer|^check$|^submit$|^verify$/i;
+    target = buttons.find((b) => re.test(b.textContent.trim()));
+  }
+  if (!target) return { clicked: false };
+
+  if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.click();
+  return { clicked: true, text: target.textContent.trim().slice(0, 60) };
+}
+
+async function pressNextOnPage() {
+  setBusy($('btn-next'), true);
+  try {
+    const tab = await getActiveTab();
+    if (!tab?.id) throw new Error('No active tab found.');
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: clickCheckAnswerButton
+    });
+    if (result?.clicked) {
+      showStatus($('mcq-status'), 'ok', `Clicked "${result.text}" on the page.`);
+    } else {
+      showStatus(
+        $('mcq-status'),
+        'err',
+        'No "Check your answer" button found on this page.'
+      );
+    }
+  } catch (err) {
+    showStatus($('mcq-status'), 'err', err.message);
+  } finally {
+    setBusy($('btn-next'), false);
+  }
+}
+
+/* injected into the page; must be self-contained */
 function applyAnswersOnPage(choices) {
   let clicked = 0;
   let missing = 0;
@@ -564,6 +612,7 @@ $('btn-github').addEventListener('click', saveSummaryToGithub);
 $('btn-download').addEventListener('click', downloadSummary);
 $('btn-solve').addEventListener('click', solveMcq);
 $('btn-autosolve').addEventListener('click', autoSolvePage);
+$('btn-next').addEventListener('click', pressNextOnPage);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-test').addEventListener('click', testConnections);
 
