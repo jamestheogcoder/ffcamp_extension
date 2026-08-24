@@ -45,7 +45,8 @@ const MCQ_SYSTEM_AUTO = [
   'in the EXACT SAME ORDER as the input:',
   '[{"question": "[Q0] ...", "answer": "B", "reasoning": "1-2 sentence justification"}]',
   '"answer" MUST be the single capital letter of the best option.',
-  'No markdown fences, no extra text before or after the JSON.'
+  'Do NOT output safety classifications, disclaimers, explanations of your process,',
+  'markdown fences, or ANY text before/after the JSON array.'
 ].join('\n');
 
 /* ================================ state ================================= */
@@ -101,7 +102,7 @@ async function saveSettings() {
 
 /* ============================== OpenRouter ============================== */
 
-async function askAI(messages) {
+async function askAI(messages, opts = {}) {
   const s = await getSettings();
   const key = (s.openrouterKey || '').trim();
   if (!key) throw new Error('Add your OpenRouter API key in Settings first.');
@@ -113,10 +114,13 @@ async function askAI(messages) {
   });
   headers.set('Authorization', `Bearer ${key}`);
 
+  const body = { model: s.model, messages };
+  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: s.model, messages })
+    body: JSON.stringify(body)
   });
 
   if (!res.ok) {
@@ -337,12 +341,35 @@ async function autoSolvePage() {
       })
       .join('\n\n');
 
-    const raw = await askAI([
-      { role: 'system', content: MCQ_SYSTEM_AUTO },
-      { role: 'user', content: numbered }
-    ]);
+    const raw = await askAI(
+      [
+        { role: 'system', content: MCQ_SYSTEM_AUTO },
+        { role: 'user', content: numbered }
+      ],
+      { temperature: 0.1 }
+    );
 
-    const parsed = parseAnswers(raw);
+    let parsed = parseAnswers(raw);
+    if (!parsed) {
+      showStatus($('mcq-status'), null, 'Model output was messy - retrying in strict mode...');
+      const raw2 = await askAI(
+        [
+          {
+            role: 'system',
+            content:
+              'You output ONLY valid JSON. No prose, no safety notes, no markdown fences. First character of your reply is "[" and last is "]".'
+          },
+          {
+            role: 'user',
+            content:
+              numbered +
+              '\n\nReturn ONLY the JSON array now: [{"question":"[Q0]...","answer":"B","reasoning":"..."}]'
+          }
+        ],
+        { temperature: 0 }
+      );
+      parsed = parseAnswers(raw2);
+    }
     if (!parsed) throw new Error(`AI returned unparsable output: ${raw.slice(0, 200)}`);
 
     for (let i = 0; i < parsed.length; i++) resultsBox.appendChild(mcqCard(parsed[i]));
@@ -521,10 +548,13 @@ async function solveMcq() {
   setBusy($('btn-solve'), true);
   try {
     showStatus($('mcq-status'), null, 'Thinking...');
-    const raw = await askAI([
-      { role: 'system', content: MCQ_SYSTEM },
-      { role: 'user', content: input }
-    ]);
+    const raw = await askAI(
+      [
+        { role: 'system', content: MCQ_SYSTEM },
+        { role: 'user', content: input }
+      ],
+      { temperature: 0.1 }
+    );
 
     const answers = parseAnswers(raw);
     if (answers) {
@@ -568,18 +598,37 @@ function mcqCard(item) {
 }
 
 function parseAnswers(raw) {
-  const candidates = [raw];
-  const bracketed = raw.match(/\[[\s\S]*\]/);
-  if (bracketed) candidates.push(bracketed[0]);
-  for (const c of candidates) {
+  let t = String(raw ?? '').replace(/```(?:json)?/gi, '');
+
+  // direct array / wrapped-object attempts
+  const attempts = [t];
+  const s = t.indexOf('[');
+  const e = t.lastIndexOf(']');
+  if (s !== -1 && e > s) attempts.push(t.slice(s, e + 1));
+  for (const a of attempts) {
     try {
-      const j = JSON.parse(c);
+      const j = JSON.parse(a.trim());
       if (Array.isArray(j)) return j;
       if (Array.isArray(j?.questions)) return j.questions;
       if (Array.isArray(j?.answers)) return j.answers;
     } catch {
-      /* try next */
+      /* next */
     }
+  }
+
+  /* last-resort letter scan: "[Q2] B", "Q2: b)", "answer is C", "2) A" */
+  const found = new Map();
+  const qRe = /\[?\bQ\s*(\d+)\b\]?[^A-Ha-h\n]{0,20}?\(?([A-H])\b/gi;
+  for (const m of t.matchAll(qRe)) found.set(+m[1], m[2].toUpperCase());
+  if (found.size === 0) {
+    const looseRe = /(?:answer|option|choice)\D{0,12}\(?([A-H])\b/gi;
+    let i = 0;
+    for (const m of t.matchAll(looseRe)) found.set(i++, m[1].toUpperCase());
+  }
+  if (found.size > 0) {
+    return [...found.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([q, ans]) => ({ question: `[Q${q}]`, answer: ans, reasoning: '(parsed from noisy model output)' }));
   }
   return null;
 }
