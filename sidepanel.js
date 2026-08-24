@@ -169,6 +169,8 @@ function fillSettingsForm(s) {
   document.querySelectorAll('.ptab').forEach((t) =>
     t.classList.toggle('active', t.dataset.cat === s.cat)
   );
+  const act = (s.accounts || []).find((a) => a.id === s.activeId) || {};
+  $('set-acct-name').value = act.name || '';
   fillPresetSelect(s.cat, s.presetId);
   $('set-base').value = s.baseUrl;
   $('set-prov-key').value = s.apiKey;
@@ -216,6 +218,7 @@ function currentCat() {
 
 function formValues() {
   return {
+    name: $('set-acct-name').value.trim(),
     cat: currentCat(),
     presetId: $('set-base-select').value,
     baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
@@ -253,6 +256,7 @@ async function saveSettings() {
 
     accounts = applyForm(accounts, stored.activeId);
     const act = accounts.find((a) => a.id === stored.activeId);
+    act.name = formValues().name || act.name || `${act.presetId}:${act.model}`;
 
     await persistAccounts(accounts, act.id);
 
@@ -262,7 +266,7 @@ async function saveSettings() {
 
     const enabled = accounts.filter((a) => a.enabled !== false).length;
     logLine(
-      `💾 SAVED "${act.presetId}:${act.model}" @ ${act.baseUrl} · key ${maskKey(act.apiKey)} · ${enabled} racing`,
+      `💾 SAVED "${act.name}" (${act.presetId}:${act.model}) @ ${act.baseUrl} · key ${maskKey(act.apiKey)} · ${enabled} racing`,
       'ok'
     );
     flashStatus(
@@ -270,7 +274,7 @@ async function saveSettings() {
       warnings.length ? 'err' : 'ok',
       warnings.length
         ? warnings.join(' ')
-        : `✅ Saved "${act.presetId}:${act.model}" · ${enabled} racing ⚡ — add another or pick from the list`
+        : `✅ Saved “${act.name}” · ${enabled} racing ⚡ — add another or pick from the list`
     );
     editorForced = false; // back to the list view
     renderAccounts();
@@ -332,7 +336,7 @@ function renderAccounts() {
         const on = a.enabled !== false;
         return `<div class="acct${a.id === s.activeId ? ' active' : ''}${on ? '' : ' off'}" data-id="${a.id}">
           <input type="checkbox" data-toggle="${a.id}" ${on ? 'checked' : ''} title="Include in race" />
-          <span class="acct-name" data-select="${a.id}">${on ? '⚡' : '⏸'} ${esc(a.presetId)} · ${esc(a.model || '?')}</span>
+          <span class="acct-name" data-select="${a.id}">${on ? '⚡' : '⏸'} ${esc(a.name || `${a.presetId} · ${a.model}`)}</span>
           <button class="abtn" data-edit="${a.id}" title="Edit in form below">✏️</button>
           <button class="abtn" data-del="${a.id}" title="Delete">🗑️</button>
         </div>`;
@@ -400,6 +404,7 @@ $('b-acct-add').addEventListener('click', async () => {
 
     const acct = {
       id: uid(), enabled: true,
+      name: `Account ${accounts.length + 1}`,
       cat: 'openai', presetId: 'openrouter',
       baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
     };
