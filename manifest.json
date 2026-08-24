@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FFCamp AI",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "AI side panel: summarize pages into Markdown study notes saved to GitHub, and solve MCQs via OpenRouter.",
   "permissions": [
     "sidePanel",

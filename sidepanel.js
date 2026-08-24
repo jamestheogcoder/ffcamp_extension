@@ -242,6 +242,7 @@ async function saveSettings() {
   if (!act.apiKey) warnings.push('⚠️ Active account has no API key.');
   if (!act.baseUrl) warnings.push('⚠️ Base URL is empty.');
   const enabled = accounts.filter((a) => a.enabled !== false).length;
+  logLine(`💾 SAVED account "${act.presetId}:${act.model}" @ ${act.baseUrl} · key ${maskKey(act.apiKey)} · ${enabled} racing`, 'ok');
   flashStatus(
     $('settings-status'),
     warnings.length ? 'err' : 'ok',
@@ -249,6 +250,7 @@ async function saveSettings() {
       ? warnings.join(' ')
       : `Saved · "${act.presetId}:${act.model}" · ${enabled} account(s) racing ⚡`
   );
+  editorForced = false; // back to the list view, ready to add another
   renderAccounts();
 }
 
@@ -395,6 +397,7 @@ function sanitizeModelOutput(text) {
 }
 
 let LAST_RACE = null; // { name, ms } of the winning account
+let LAST_URL = null;  // endpoint URL that actually worked last
 
 async function askAI(messages, opts = {}) {
   const s = await getSettings();
@@ -462,7 +465,11 @@ async function openaiChat(a, base, key, messages, opts) {
   const body = { model: a.model, messages };
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
 
-  const res = await fetch(`${base}/chat/completions`, {
+  /* gateways differ: some serve /chat/completions at root, most under /v1 */
+  const candidates = [`${base}/chat/completions`];
+  if (!/\/v\d+\/?$/i.test(base)) candidates.push(`${base}/v1/chat/completions`);
+
+  const init = {
     method: 'POST',
     signal: opts.signal,
     headers: {
@@ -472,16 +479,42 @@ async function openaiChat(a, base, key, messages, opts) {
       'X-Title': 'FFCamp Extension'
     },
     body: JSON.stringify(body)
-  });
-  if (!res.ok) throw await apiError(res, 'OpenAI-compatible');
-  const data = await res.json();
-  const content =
-    data.choices?.[0]?.message?.content ??
-    (Array.isArray(data.choices?.[0]?.message?.content)
-      ? data.choices[0].message.content.map((c) => c.text || '').join('')
-      : null);
-  if (!content) throw new Error('Provider returned an empty response.');
-  return sanitizeModelOutput(String(content).trim());
+  };
+
+  let lastErr = null;
+  for (const url of candidates) {
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      lastErr = e;
+      continue;
+    }
+    if (res.ok) {
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('json')) {
+        lastErr = new Error(`non-JSON response from ${url} — wrong path?`);
+        continue;
+      }
+      const data = await res.json();
+      LAST_URL = url;
+      const content =
+        data.choices?.[0]?.message?.content ??
+        (Array.isArray(data.choices?.[0]?.message?.content)
+          ? data.choices[0].message.content.map((c) => c.text || '').join('')
+          : null);
+      if (!content) throw new Error('Provider returned an empty response.');
+      return sanitizeModelOutput(String(content).trim());
+    }
+    if (res.status === 401 || res.status === 403) throw await apiError(res, 'OpenAI-compatible');
+    if (res.status === 404 || res.status === 405) {
+      lastErr = new Error(`HTTP ${res.status} from ${url}`);
+      continue;
+    }
+    throw await apiError(res, 'OpenAI-compatible');
+  }
+  throw lastErr || new Error('No working endpoint path found.');
 }
 
 /* Anthropic-compatible: Claude & anything speaking /messages */
@@ -498,7 +531,10 @@ async function anthropicChat(a, base, key, messages, opts) {
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
   if (system) body.system = system;
 
-  const res = await fetch(`${base}/messages`, {
+  const candidates = [`${base}/messages`];
+  if (!/\/v\d+\/?$/i.test(base)) candidates.push(`${base}/v1/messages`);
+
+  const init = {
     method: 'POST',
     signal: opts.signal,
     headers: {
@@ -507,15 +543,41 @@ async function anthropicChat(a, base, key, messages, opts) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify(body)
-  });
-  if (!res.ok) throw await apiError(res, 'Anthropic-compatible');
-  const data = await res.json();
-  const content = (data.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
-  if (!content) throw new Error('Provider returned an empty response.');
-  return sanitizeModelOutput(content.trim());
+  };
+
+  let lastErr = null;
+  for (const url of candidates) {
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      lastErr = e;
+      continue;
+    }
+    if (res.ok) {
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('json')) {
+        lastErr = new Error(`non-JSON response from ${url} — wrong path?`);
+        continue;
+      }
+      const data = await res.json();
+      LAST_URL = url;
+      const content = (data.content || [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      if (!content) throw new Error('Provider returned an empty response.');
+      return sanitizeModelOutput(content.trim());
+    }
+    if (res.status === 401 || res.status === 403) throw await apiError(res, 'Anthropic-compatible');
+    if (res.status === 404 || res.status === 405) {
+      lastErr = new Error(`HTTP ${res.status} from ${url}`);
+      continue;
+    }
+    throw await apiError(res, 'Anthropic-compatible');
+  }
+  throw lastErr || new Error('No working endpoint path found.');
 }
 
 async function apiError(res, label) {
@@ -1176,6 +1238,21 @@ $('btn-next').addEventListener('click', pressNextOnPage);
 $('btn-save-acct').addEventListener('click', saveSettings);
 $('btn-save-github').addEventListener('click', saveGithub);
 
+/* ------- mini console (logs every live-test / save event) ------- */
+function logLine(msg, kind = '') {
+  const box = $('live-log');
+  if (!box) return;
+  const t = new Date().toLocaleTimeString();
+  const row = document.createElement('div');
+  if (kind) row.className = kind;
+  row.textContent = `[${t}] ${msg}`;
+  box.appendChild(row);
+  while (box.childElementCount > 80) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+
+const maskKey = (k) => (k ? `${k.slice(0, 6)}…${k.slice(-4)} (${k.length})` : 'none');
+
 /* live-test the form as typed (no save needed): "what is 2+2" */
 $('btn-live-test').addEventListener('click', async () => {
   const acct = {
@@ -1186,15 +1263,19 @@ $('btn-live-test').addEventListener('click', async () => {
     apiKey: $('set-prov-key').value.trim(),
     model: $('set-model').value.trim()
   };
-  const el = $('live-status');
-  const say = (kind, msg) => { el.hidden = false; el.className = `status ${kind || ''}`; el.textContent = msg; };
+  const box = $('live-log');
+  box.hidden = false;
 
-  if (!acct.baseUrl || !acct.model) return say('err', '⚠️ Base URL and Model are required to test.');
+  if (!acct.baseUrl || !acct.model)
+    return logLine('❌ TEST skipped — Base URL and Model are required.', 'err');
   if (!acct.apiKey && !/localhost|127\.0\.0\.1/.test(acct.baseUrl))
-    return say('err', '⚠️ Paste an API key first.');
+    return logLine('❌ TEST skipped — paste an API key first.', 'err');
 
   setBusy($('btn-live-test'), true);
-  say(null, `⚡ Pinging ${acct.model}…`);
+  logLine(`⚡ TEST ${acct.cat} · preset "${acct.presetId}"`, 'info');
+  logLine(`   url  : ${acct.baseUrl}/… (auto-trying /v1 when needed)`);
+  logLine(`   model: ${acct.model} · key: ${maskKey(acct.apiKey)}`);
+
   const t0 = performance.now();
   try {
     const reply = await runAccount(
@@ -1203,10 +1284,14 @@ $('btn-live-test').addEventListener('click', async () => {
       { temperature: 0 }
     );
     const ms = Math.round(performance.now() - t0);
-    if (/\b4\b/.test(reply)) say('ok', `✅ Working — replied "${reply.slice(0, 30)}" (${ms}ms)`);
-    else say('ok', `⚠️ Responded (${ms}ms) but reply was: "${reply.slice(0, 60)}"`);
+    logLine(`   via  : ${LAST_URL || acct.baseUrl}`, 'info');
+    if (/\b4\b/.test(reply)) {
+      logLine(`✅ Working — replied "${reply.slice(0, 30)}" in ${ms}ms`, 'ok');
+    } else {
+      logLine(`⚠️ Responded (${ms}ms) but reply was: "${reply.slice(0, 60)}"`);
+    }
   } catch (e) {
-    say('err', `❌ Not working: ${String(e.message).slice(0, 160)}`);
+    logLine(`❌ Not working — ${String(e.message).slice(0, 200)}`, 'err');
   } finally {
     setBusy($('btn-live-test'), false);
   }
