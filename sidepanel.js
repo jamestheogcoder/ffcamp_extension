@@ -8,11 +8,16 @@ const DEFAULTS = {
   baseUrl: 'https://openrouter.ai/api/v1',
   apiKey: '',
   model: 'openrouter/free',
+  accounts: [],             // [{id, enabled, cat, presetId, baseUrl, apiKey, model}]
+  activeId: '',
   githubToken: '',
   repo: '',
   branch: 'main',
   folder: 'docs/summaries'
 };
+
+const uid = () =>
+  (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Date.now().toString(36));
 
 const PRESETS = {
   openai: [
@@ -118,18 +123,39 @@ async function getSettings() {
   const stored = await chrome.storage.local.get(null);
   const merged = { ...DEFAULTS, ...stored };
 
-  /* v1.7.0 migration: old single-provider keys -> new provider fields */
-  if (!stored.baseUrl && stored.openrouterKey) {
-    merged.cat = merged.cat || 'openai';
-    merged.presetId = merged.presetId && stored.presetId ? merged.presetId : 'openrouter';
-    merged.baseUrl = stored.baseUrl || 'https://openrouter.ai/api/v1';
-    if (!merged.apiKey) merged.apiKey = stored.openrouterKey;
-    if (stored.model && (!merged.model || merged.model === DEFAULTS.model)) merged.model = stored.model;
-    chrome.storage.local.set({
-      cat: merged.cat, presetId: merged.presetId, baseUrl: merged.baseUrl,
-      apiKey: merged.apiKey, model: merged.model
-    });
+  /* ---- v1.8.0 migration: single provider -> accounts[] ---- */
+  if (!Array.isArray(merged.accounts)) {
+    const legacyKey = (stored.apiKey || stored.openrouterKey || '').trim();
+    merged.accounts = legacyKey
+      ? [{
+          id: uid(), enabled: true,
+          cat: stored.cat || 'openai',
+          presetId: stored.presetId || 'openrouter',
+          baseUrl: (stored.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, ''),
+          apiKey: legacyKey,
+          model: stored.model || DEFAULTS.model
+        }]
+      : [];
+    if (!merged.accounts.length && !legacyKey) {
+      merged.accounts = [{
+        id: uid(), enabled: true, cat: 'openai', presetId: 'openrouter',
+        baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
+      }];
+    }
+    merged.activeId = merged.accounts[0].id;
+    chrome.storage.local.set({ accounts: merged.accounts, activeId: merged.activeId });
   }
+  if (!merged.accounts.length) {
+    merged.accounts = [{ id: uid(), enabled: false, cat: 'openai', presetId: 'custom', baseUrl: '', apiKey: '', model: '' }];
+  }
+  let act = merged.accounts.find((a) => a.id === merged.activeId) || merged.accounts[0];
+  merged.activeId = act.id;
+
+  /* derive flat mirrors so all existing code paths keep working */
+  Object.assign(merged, {
+    cat: act.cat, presetId: act.presetId, baseUrl: act.baseUrl,
+    apiKey: act.apiKey, model: act.model
+  });
 
   // legacy/broken folder values -> Pages-served docs path
   const BAD_FOLDERS = ['', 'ffcamp-summaries', 'ffcamp_extension'];
@@ -139,6 +165,10 @@ async function getSettings() {
     chrome.storage.local.set({ folder: merged.folder });
   }
   return merged;
+}
+
+async function persistAccounts(accounts, activeId) {
+  await chrome.storage.local.set({ accounts, ...(activeId ? { activeId } : {}) });
 }
 
 function fillSettingsForm(s) {
@@ -191,34 +221,134 @@ function currentCat() {
 }
 
 async function saveSettings() {
-  const values = {
-    cat: currentCat(),
-    presetId: $('set-base-select').value,
-    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
-    apiKey: $('set-prov-key').value.trim(),
-    model: $('set-model').value.trim() || DEFAULTS.model,
+  const stored = await getSettings();
+  const accounts = (stored.accounts || []).map((a) => ({ ...a }));
+  let act = accounts.find((a) => a.id === stored.activeId) || accounts[0];
+  if (!act) {
+    act = { id: uid(), enabled: true };
+    accounts.push(act);
+  }
+
+  /* form -> active account */
+  act.cat = currentCat();
+  act.presetId = $('set-base-select').value;
+  act.baseUrl = $('set-base').value.trim().replace(/\/+$/, '');
+  act.apiKey = $('set-prov-key').value.trim();
+  act.model = $('set-model').value.trim() || DEFAULTS.model;
+
+  const github = {
     githubToken: $('set-gh-token').value.trim(),
     repo: $('set-repo').value.trim(),
     branch: $('set-branch').value.trim() || DEFAULTS.branch,
     folder: $('set-folder').value.trim() || DEFAULTS.folder
   };
-  await chrome.storage.local.set(values);
+
+  await chrome.storage.local.set({ accounts, activeId: act.id, ...github });
 
   const warnings = [];
-  if (!values.apiKey) warnings.push('⚠️ No API key set yet.');
-  if (!values.baseUrl) warnings.push('⚠️ Base URL is empty.');
-  if (values.githubToken && !/^(ghp_|github_pat_|gho_)/.test(values.githubToken)) {
+  if (!act.apiKey) warnings.push('⚠️ Active account has no API key.');
+  if (github.githubToken && !/^(ghp_|github_pat_|gho_)/.test(github.githubToken)) {
     warnings.push('⚠️ That does not look like a GitHub token (expected ghp_/github_pat_/gho_).');
   }
-  if (!/^[\w.-]+\/[\w.-]+$/.test(values.repo)) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(github.repo)) {
     warnings.push('⚠️ Repo must be owner/name - exactly: jamestheogcoder/ffcamp_extension');
   }
+  const enabled = accounts.filter((a) => a.enabled !== false).length;
   flashStatus(
     $('settings-status'),
     warnings.length ? 'err' : 'ok',
-    warnings.length ? warnings.join(' ') : `Saved · ${values.cat === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible'} · ${values.model}`
+    warnings.length
+      ? warnings.join(' ')
+      : `Saved · account "${act.presetId}:${act.model}" · ${enabled} account(s) racing ⚡`
   );
+  renderAccounts();
 }
+
+/* ============================ accounts list ============================== */
+
+function renderAccounts() {
+  const box = $('acct-list');
+  getSettings().then((s) => {
+    const accs = s.accounts || [];
+    if (!accs.length) {
+      box.innerHTML = '<p class="hint">No accounts yet — configure below and press “+ Add”.</p>';
+      return;
+    }
+    box.innerHTML = accs
+      .map((a) => {
+        const on = a.enabled !== false;
+        return `<div class="acct${a.id === s.activeId ? ' active' : ''}${on ? '' : ' off'}" data-id="${a.id}">
+          <input type="checkbox" data-toggle="${a.id}" ${on ? 'checked' : ''} title="Include in race" />
+          <span class="acct-name" data-select="${a.id}">${on ? '⚡' : '⏸'} ${esc(a.presetId)} · ${esc(a.model || '?')}</span>
+          <button class="abtn" data-edit="${a.id}" title="Edit in form below">✏️</button>
+          <button class="abtn" data-del="${a.id}" title="Delete">🗑️</button>
+        </div>`;
+      })
+      .join('');
+  });
+}
+
+$('acct-list').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    const s = await getSettings();
+    const accounts = s.accounts.filter((a) => a.id !== del.dataset.del);
+    const activeId = accounts[0]?.id || '';
+    await persistAccounts(accounts, activeId);
+    fillSettingsForm(await getSettings());
+    renderAccounts();
+    return;
+  }
+  const edit = e.target.closest('[data-edit]');
+  if (edit) {
+    await persistAccounts(undefined, edit.dataset.edit);
+    fillSettingsForm(await getSettings());
+    renderAccounts();
+    return;
+  }
+  const sel = e.target.closest('[data-select]');
+  if (sel) {
+    await persistAccounts(undefined, sel.dataset.select);
+    fillSettingsForm(await getSettings());
+    renderAccounts();
+  }
+});
+
+$('acct-list').addEventListener('change', async (e) => {
+  const t = e.target.closest('[data-toggle]');
+  if (!t) return;
+  const s = await getSettings();
+  const accounts = s.accounts.map((a) =>
+    a.id === t.dataset.toggle ? { ...a, enabled: t.checked } : a
+  );
+  await persistAccounts(accounts);
+  renderAccounts();
+});
+
+$('b-acct-add').addEventListener('click', async () => {
+  const s = await getSettings();
+  const acct = {
+    id: uid(), enabled: true,
+    cat: currentCat(),
+    presetId: $('set-base-select').value,
+    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
+    apiKey: $('set-prov-key').value.trim(),
+    model: $('set-model').value.trim()
+  };
+  if (!acct.baseUrl || !acct.model) {
+    flashStatus($('settings-status'), 'err', '⚠️ Fill base URL + model below first, then Add.');
+    return;
+  }
+  const accounts = [...(s.accounts || []), acct];
+  await persistAccounts(accounts, acct.id);
+  fillSettingsForm(await getSettings());
+  renderAccounts();
+  flashStatus(
+    $('settings-status'),
+    'ok',
+    `Account added ⚡ ${accounts.filter((a) => a.enabled !== false && a.apiKey).length} will race.`
+  );
+});
 
 /* ============================== AI calls ================================ */
 
@@ -237,32 +367,83 @@ function sanitizeModelOutput(text) {
   return t.trim();
 }
 
+let LAST_RACE = null; // { name, ms } of the winning account
+
 async function askAI(messages, opts = {}) {
   const s = await getSettings();
-  const key = (s.apiKey || '').trim();
-  const base = (s.baseUrl || '').trim().replace(/\/+$/, '');
-  if (!key) throw new Error(`No API key set - open Settings (${s.cat === 'anthropic' ? 'Anthropic-Compatible' : 'OpenAI-Compatible'}) and add one.`);
-  if (!base) throw new Error('No base URL set in Settings.');
+  const accs = (s.accounts || []).filter(
+    (a) => a.enabled !== false && (a.apiKey || '').trim() && (a.baseUrl || '').trim()
+  );
+  if (!accs.length)
+    throw new Error('No enabled AI accounts with a key. Settings → Accounts → add one.');
 
-  if (s.cat === 'anthropic') return anthropicChat(s, base, key, messages, opts);
-  return openaiChat(s, base, key, messages, opts);
+  if (accs.length === 1) {
+    LAST_RACE = null;
+    return runAccount(accs[0], messages, opts);
+  }
+  return raceAccounts(accs, messages, opts);
+}
+
+async function runAccount(a, messages, opts = {}) {
+  const key = (a.apiKey || '').trim();
+  const base = (a.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!key) throw new Error('account has no API key');
+  if (!base) throw new Error('account has no base URL');
+  return a.cat === 'anthropic'
+    ? anthropicChat(a, base, key, messages, opts)
+    : openaiChat(a, base, key, messages, opts);
+}
+
+/* fan out ONE request per enabled account in parallel;
+   first successful reply wins, losers get aborted */
+function raceAccounts(accs, messages, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const ctrl = new AbortController();
+    const errors = [];
+    let done = false;
+
+    accs.forEach((a) => {
+      const t0 = performance.now();
+      runAccount(a, messages, { ...opts, signal: ctrl.signal })
+        .then((text) => {
+          if (done) return;
+          done = true;
+          LAST_RACE = {
+            name: `${a.presetId}:${a.model}`,
+            ms: Math.round(performance.now() - t0),
+            raced: accs.length
+          };
+          ctrl.abort(); // cancel the losing requests
+          resolve(text);
+        })
+        .catch((e) => {
+          if (done) return;
+          if (e?.name === 'AbortError') return;
+          errors.push(`[${a.presetId}:${a.model}] ${String(e.message || e).slice(0, 90)}`);
+          if (errors.length >= accs.length && !done) {
+            done = true;
+            LAST_RACE = null;
+            reject(new Error(`All ${accs.length} accounts failed:\n` + errors.join('\n')));
+          }
+        });
+    });
+  });
 }
 
 /* OpenAI-compatible: OpenRouter / OpenAI / Groq / DeepSeek / Ollama / custom */
-async function openaiChat(s, base, key, messages, opts) {
-  const headers = new Headers({
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${key}`,
-    'HTTP-Referer': 'https://github.com/ffcamp-extension',
-    'X-Title': 'FFCamp Extension'
-  });
-
-  const body = { model: s.model, messages };
+async function openaiChat(a, base, key, messages, opts) {
+  const body = { model: a.model, messages };
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
 
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
-    headers,
+    signal: opts.signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+      'HTTP-Referer': 'https://github.com/ffcamp-extension',
+      'X-Title': 'FFCamp Extension'
+    },
     body: JSON.stringify(body)
   });
   if (!res.ok) throw await apiError(res, 'OpenAI-compatible');
@@ -277,7 +458,7 @@ async function openaiChat(s, base, key, messages, opts) {
 }
 
 /* Anthropic-compatible: Claude & anything speaking /messages */
-async function anthropicChat(s, base, key, messages, opts) {
+async function anthropicChat(a, base, key, messages, opts) {
   const system = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -286,12 +467,13 @@ async function anthropicChat(s, base, key, messages, opts) {
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }));
 
-  const body = { model: s.model, max_tokens: opts.maxTokens ?? 8192, messages: rest };
+  const body = { model: a.model, max_tokens: opts.maxTokens ?? 8192, messages: rest };
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
   if (system) body.system = system;
 
   const res = await fetch(`${base}/messages`, {
     method: 'POST',
+    signal: opts.signal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': key,
@@ -313,7 +495,7 @@ async function apiError(res, label) {
   const text = await res.text().catch(() => '');
   if (res.status === 401 || res.status === 403) {
     return new Error(
-      `${label} ${res.status} - authentication failed. Check the API key in Settings ("${text.slice(0, 100)}").`
+      `${label} ${res.status} - authentication failed. Check the API key ("${text.slice(0, 100)}").`
     );
   }
   return new Error(`${label} ${res.status}: ${text.slice(0, 300)}`);
@@ -329,24 +511,28 @@ async function testConnections() {
   const key = (s.apiKey || '').trim();
 
   try {
-    lines.push(
-      `Provider : ${s.cat === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible'} · preset "${s.presetId}"`
+    const accs = (s.accounts || []).filter(
+      (a) => a.enabled !== false && (a.apiKey || '').trim() && (a.baseUrl || '').trim()
     );
-    lines.push(`Base URL : ${s.baseUrl}`);
-    lines.push(
-      `API key  : ${key ? `${key.slice(0, 8)}...${key.slice(-4)} (${key.length} chars)` : 'MISSING ❌'}`
-    );
-    lines.push(`Model    : ${s.model}`);
+    lines.push(`Accounts: ${accs.length} enabled (all race in parallel on real calls)`);
 
-    /* tiny live ping through the exact code path askAI uses */
-    try {
-      const reply = await askAI([{ role: 'user', content: 'Reply with exactly: OK' }], {
-        temperature: 0
-      });
-      lines.push(`AI ping  : OK - replied "${reply.slice(0, 40)}"`);
-    } catch (e) {
-      lines.push(`AI ping  : FAILED - ${e.message.slice(0, 180)}`);
+    /* ping each account, measure speed */
+    const results = [];
+    for (const a of accs) {
+      const t0 = performance.now();
+      try {
+        const reply = await runAccount(a, [{ role: 'user', content: 'Reply with exactly: OK' }], {
+          temperature: 0
+        });
+        results.push({ name: `${a.presetId}:${a.model}`, ms: Math.round(performance.now() - t0), ok: true, reply });
+        lines.push(`  ⚡ ${a.presetId}:${a.model} → OK ${Math.round(performance.now() - t0)}ms`);
+      } catch (e) {
+        results.push({ name: `${a.presetId}:${a.model}`, ok: false });
+        lines.push(`  ✖ ${a.presetId}:${a.model} → ${String(e.message).slice(0, 120)}`);
+      }
     }
+    const winner = results.filter((r) => r.ok).sort((x, y) => x.ms - y.ms)[0];
+    if (winner) lines.push(`Fastest: 🏆 ${winner.name} (${winner.ms}ms) — races are won by whoever replies first`);
 
     lines.push('');
     lines.push(`GitHub token stored: ${s.githubToken ? `${s.githubToken.slice(0, 9)}... (${s.githubToken.length} chars)` : 'MISSING'}`);
@@ -447,7 +633,12 @@ async function summarizePage() {
     preview.textContent = currentMarkdown;
     unhide(preview);
     unhide($('sum-actions'));
-    showStatus($('sum-status'), 'ok', 'Done - raw content + AI analysis ready.');
+    showStatus(
+      $('sum-status'),
+      'ok',
+      'Done - raw content + AI analysis ready.' +
+        (LAST_RACE ? ` ⚡ won by ${LAST_RACE.name} (${LAST_RACE.ms}ms of ${LAST_RACE.raced})` : '')
+    );
   } catch (err) {
     showStatus($('sum-status'), 'err', err.message);
   } finally {
