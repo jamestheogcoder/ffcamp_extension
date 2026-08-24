@@ -103,7 +103,7 @@ async function saveSettings() {
     warnings.push('⚠️ That does not look like a GitHub token (expected ghp_/github_pat_/gho_).');
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(values.repo)) {
-    warnings.push('⚠️ Repo must be owner/name - e.g. jamestheogcoder/ffcamp_extension.');
+    warnings.push('⚠️ Repo must be owner/name - exactly: jamestheogcoder/ffcamp_extension');
   }
   flashStatus(
     $('settings-status'),
@@ -303,7 +303,9 @@ async function saveSummaryToGithub() {
     const s = await getSettings();
     if (!s.githubToken) throw new Error('Add your GitHub token in Settings first.');
     if (!/^[\w.-]+\/[\w.-]+$/.test(s.repo)) {
-      throw new Error('Set your repo in Settings as owner/name (e.g. you/study-notes).');
+      throw new Error(
+        'Repo setting is invalid. Open Settings and set the Repo field EXACTLY to: jamestheogcoder/ffcamp_extension  (owner/name - not just the repo name), then Save.'
+      );
     }
 
     const path = `${s.folder.replace(/^\/+|\/+$/g, '')}/${fileName(currentTitle)}.md`;
