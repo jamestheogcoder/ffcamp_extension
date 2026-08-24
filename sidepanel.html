@@ -12,6 +12,7 @@
     <nav>
       <button class="tab active" data-tab="summarize">Summarize</button>
       <button class="tab" data-tab="mcq">MCQ</button>
+      <button class="tab" data-tab="github">GitHub</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
   </header>
@@ -62,35 +63,11 @@ D) Madrid
       <div id="mcq-results"></div>
     </section>
 
-    <!-- ============ SETTINGS ============ -->
-    <section id="tab-settings" class="panel">
-      <h3>AI Accounts — raced in parallel ⚡</h3>
-      <div id="acct-list"></div>
-      <div class="row">
-        <button id="b-acct-add" class="btn wide">+ Add account from form below</button>
-      </div>
-
-      <h3>Provider (edits selected account)</h3>
-      <div class="ptabs">
-        <button class="ptab active" data-cat="openai">OpenAI-Compatible</button>
-        <button class="ptab" data-cat="anthropic">Anthropic-Compatible</button>
-      </div>
-      <label>Preset / endpoint
-        <select id="set-base-select"></select>
-      </label>
-      <label>Base URL
-        <input id="set-base" autocomplete="off" placeholder="https://.../v1" />
-      </label>
-      <label>API key
-        <input id="set-prov-key" type="password" autocomplete="off" placeholder="paste your key" />
-      </label>
-      <label>Model
-        <input id="set-model" autocomplete="off" list="" placeholder="provider/model-id" />
-      </label>
-
+    <!-- ============ GITHUB ============ -->
+    <section id="tab-github" class="panel">
       <h3>GitHub</h3>
       <label>Token (Contents: Read &amp; Write)
-        <input id="set-gh-token" type="password" autocomplete="off" placeholder="github_pat_..." />
+        <input id="set-gh-token" type="password" autocomplete="off" placeholder="ghp_ / github_pat_ / gho_" />
       </label>
       <label>Repo (owner/name)
         <input id="set-repo" autocomplete="off" placeholder="jamestheogcoder/ffcamp_extension" />
@@ -101,15 +78,45 @@ D) Madrid
       <label>Folder in repo (leave as docs/summaries)
         <input id="set-folder" autocomplete="off" placeholder="docs/summaries" />
       </label>
+      <div class="row">
+        <button id="btn-save-github" class="btn primary wide">Save GitHub settings</button>
+      </div>
+      <span id="gh-status" class="status" hidden></span>
+    </section>
 
+    <!-- ============ SETTINGS ============ -->
+    <section id="tab-settings" class="panel">
+      <h3>AI Accounts — raced in parallel ⚡</h3>
+      <p class="hint">Click an account to configure it. Checkboxes decide who races.</p>
+      <div id="acct-list"></div>
       <div class="row">
-        <button id="btn-save-settings" class="btn primary wide">Save settings</button>
+        <button id="b-acct-add" class="btn wide">+ Add account</button>
       </div>
-      <div class="row">
-        <button id="btn-test" class="btn wide">Test connections</button>
+
+      <div id="provider-editor" hidden>
+        <h3>Provider (edits selected account)</h3>
+        <div class="ptabs">
+          <button class="ptab active" data-cat="openai">OpenAI-Compatible</button>
+          <button class="ptab" data-cat="anthropic">Anthropic-Compatible</button>
+        </div>
+        <label>Preset / endpoint
+          <select id="set-base-select"></select>
+        </label>
+        <label>Base URL
+          <input id="set-base" autocomplete="off" placeholder="https://.../v1" />
+        </label>
+        <label>API key
+          <input id="set-prov-key" type="password" autocomplete="off" placeholder="paste your key" />
+        </label>
+        <label>Model
+          <input id="set-model" autocomplete="off" list="" placeholder="provider/model-id" />
+        </label>
+        <div class="row">
+          <button id="btn-save-acct" class="btn primary wide">Save account</button>
+        </div>
       </div>
+
       <span id="settings-status" class="status" hidden></span>
-      <pre id="test-results" class="preview" hidden></pre>
     </section>
   </main>
 

@@ -236,32 +236,53 @@ async function saveSettings() {
   act.apiKey = $('set-prov-key').value.trim();
   act.model = $('set-model').value.trim() || DEFAULTS.model;
 
-  const github = {
-    githubToken: $('set-gh-token').value.trim(),
-    repo: $('set-repo').value.trim(),
-    branch: $('set-branch').value.trim() || DEFAULTS.branch,
-    folder: $('set-folder').value.trim() || DEFAULTS.folder
-  };
-
-  await chrome.storage.local.set({ accounts, activeId: act.id, ...github });
+  await chrome.storage.local.set({ accounts, activeId: act.id });
 
   const warnings = [];
   if (!act.apiKey) warnings.push('⚠️ Active account has no API key.');
-  if (github.githubToken && !/^(ghp_|github_pat_|gho_)/.test(github.githubToken)) {
-    warnings.push('⚠️ That does not look like a GitHub token (expected ghp_/github_pat_/gho_).');
-  }
-  if (!/^[\w.-]+\/[\w.-]+$/.test(github.repo)) {
-    warnings.push('⚠️ Repo must be owner/name - exactly: jamestheogcoder/ffcamp_extension');
-  }
+  if (!act.baseUrl) warnings.push('⚠️ Base URL is empty.');
   const enabled = accounts.filter((a) => a.enabled !== false).length;
   flashStatus(
     $('settings-status'),
     warnings.length ? 'err' : 'ok',
     warnings.length
       ? warnings.join(' ')
-      : `Saved · account "${act.presetId}:${act.model}" · ${enabled} account(s) racing ⚡`
+      : `Saved · "${act.presetId}:${act.model}" · ${enabled} account(s) racing ⚡`
   );
   renderAccounts();
+}
+
+async function saveGithub() {
+  const github = {
+    githubToken: $('set-gh-token').value.trim(),
+    repo: $('set-repo').value.trim(),
+    branch: $('set-branch').value.trim() || DEFAULTS.branch,
+    folder: $('set-folder').value.trim() || DEFAULTS.folder
+  };
+  await chrome.storage.local.set(github);
+
+  const warnings = [];
+  if (github.githubToken && !/^(ghp_|github_pat_|gho_)/.test(github.githubToken)) {
+    warnings.push('⚠️ Token format looks wrong (expected ghp_/github_pat_/gho_).');
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(github.repo)) {
+    warnings.push('⚠️ Repo must be owner/name - exactly: jamestheogcoder/ffcamp_extension');
+  }
+  flashStatus(
+    $('gh-status'),
+    warnings.length ? 'err' : 'ok',
+    warnings.length
+      ? warnings.join(' ')
+      : 'GitHub settings saved ✓'
+  );
+}
+
+/* provider editor visibility: hidden until an account is clicked,
+   auto-shown when there are no accounts yet */
+let editorForced = false;
+function applyEditorVisibility(accCount) {
+  const show = accCount === 0 || editorForced;
+  $('provider-editor').hidden = !show;
 }
 
 /* ============================ accounts list ============================== */
@@ -272,6 +293,7 @@ function renderAccounts() {
     const accs = s.accounts || [];
     if (!accs.length) {
       box.innerHTML = '<p class="hint">No accounts yet — configure below and press “+ Add”.</p>';
+      applyEditorVisibility(0);
       return;
     }
     box.innerHTML = accs
@@ -285,7 +307,13 @@ function renderAccounts() {
         </div>`;
       })
       .join('');
+    applyEditorVisibility(accs.length);
   });
+}
+
+function revealEditor() {
+  editorForced = true;
+  $('provider-editor').hidden = false;
 }
 
 $('acct-list').addEventListener('click', async (e) => {
@@ -304,6 +332,7 @@ $('acct-list').addEventListener('click', async (e) => {
     await persistAccounts(undefined, edit.dataset.edit);
     fillSettingsForm(await getSettings());
     renderAccounts();
+    revealEditor();
     return;
   }
   const sel = e.target.closest('[data-select]');
@@ -311,6 +340,7 @@ $('acct-list').addEventListener('click', async (e) => {
     await persistAccounts(undefined, sel.dataset.select);
     fillSettingsForm(await getSettings());
     renderAccounts();
+    revealEditor(); // clicking an account reveals its provider form
   }
 });
 
@@ -329,24 +359,18 @@ $('b-acct-add').addEventListener('click', async () => {
   const s = await getSettings();
   const acct = {
     id: uid(), enabled: true,
-    cat: currentCat(),
-    presetId: $('set-base-select').value,
-    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
-    apiKey: $('set-prov-key').value.trim(),
-    model: $('set-model').value.trim()
+    cat: 'openai', presetId: 'openrouter',
+    baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model
   };
-  if (!acct.baseUrl || !acct.model) {
-    flashStatus($('settings-status'), 'err', '⚠️ Fill base URL + model below first, then Add.');
-    return;
-  }
   const accounts = [...(s.accounts || []), acct];
   await persistAccounts(accounts, acct.id);
   fillSettingsForm(await getSettings());
   renderAccounts();
+  revealEditor();
   flashStatus(
     $('settings-status'),
-    'ok',
-    `Account added ⚡ ${accounts.filter((a) => a.enabled !== false && a.apiKey).length} will race.`
+    null,
+    'Pick OpenAI-Compatible or Anthropic-Compatible, paste key + model, then “Save account”.'
   );
 });
 
@@ -1145,7 +1169,8 @@ $('btn-download').addEventListener('click', downloadSummary);
 $('btn-solve').addEventListener('click', solveMcq);
 $('btn-autosolve').addEventListener('click', autoSolvePage);
 $('btn-next').addEventListener('click', pressNextOnPage);
-$('btn-save-settings').addEventListener('click', saveSettings);
+$('btn-save-acct').addEventListener('click', saveSettings);
+$('btn-save-github').addEventListener('click', saveGithub);
 $('btn-test').addEventListener('click', testConnections);
 
 getSettings().then(fillSettingsForm);
