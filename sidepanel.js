@@ -1058,6 +1058,9 @@ async function pressNextOnPage() {
     while (Date.now() < deadline && !advanced) {
       await sleepMs(700);
 
+      /* donation popup may interrupt right after checking */
+      await maybeDismissDonation(tab.id);
+
       /* detection-only probe */
       const [{ result: visible }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -1375,8 +1378,43 @@ async function isCourseIndex(tabId) {
   }
 }
 
-async function openFirstIncompleteSafe(tabId) {
-  const [{ result }] = await chrome.scripting.executeScript({
+/* dismiss donation/interruption popups with a small human-like pause */
+async function maybeDismissDonation(tabId) {
+  try {
+    let probe;
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () =>
+          typeof window.__ffcampDonation === 'function'
+            ? window.__ffcampDonation(false)
+            : { found: false }
+      });
+      probe = result;
+    } catch {
+      return false;
+    }
+    if (!probe?.found) return false;
+
+    const wait = randMs(1000, 3500);
+    plog(`🚫 donation popup appeared — dismissing in ${Math.round(wait / 1000)}s…`);
+    await sleepMs(wait);
+
+    const [{ result: r }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () =>
+        typeof window.__ffcampDonation === 'function'
+          ? window.__ffcampDonation(true)
+          : { clicked: false }
+    });
+    if (r?.clicked) logLine('🚫 Dismissed donation popup ("Ask me later")', 'info');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openFirstIncompleteSafe(tabId) {  const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
       if (typeof window.__ffcampOpenFirstIncomplete !== 'function')
@@ -1414,6 +1452,9 @@ async function autoPilot() {
     for (let step = 1; step <= 40 && AUTO; step++) {
       const { id: tabId, url: pageUrl } = await activeTabInfo();
       if (!tabId) throw new Error('No active tab.');
+
+      /* interruptions first */
+      await maybeDismissDonation(tabId);
 
       /* ---------- course index: pick next incomplete lecture ---------- */
       if (await isCourseIndex(tabId)) {

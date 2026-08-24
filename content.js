@@ -293,8 +293,23 @@
   window.__ffcampClickCheck = function () {
     const b = findCheckBtn();
     if (!b) return { clicked: false };
-    if (b.scrollIntoView) b.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (b.scrollIntoView) b.scrollIntoView({ behavior: 'smooth', block: 'center' });
     b.click();
     return { clicked: true };
+  };
+
+  /* ---------- donation / interruption popups ---------- */
+  window.__ffcampDonation = function (shouldClick) {
+    const btns = [...document.querySelectorAll("button")].filter(
+      (b) => b.getClientRects().length > 0
+    );
+    const t =
+      btns.find((b) => /ask\s*me\s*later/i.test(clean(b.textContent))) ||
+      btns.find((b) => /^remind\s*me\s*later$/i.test(clean(b.textContent)));
+    if (!t) return { found: false };
+    if (!shouldClick) return { found: true };
+    if (t.scrollIntoView) t.scrollIntoView({ block: "center" });
+    t.click();
+    return { found: true, clicked: true };
   };
 })();
