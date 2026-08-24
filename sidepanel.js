@@ -13,21 +13,27 @@ const DEFAULTS = {
 
 const MAX_PAGE_CHARS = 60000;
 
-const SUMMARIZE_SYSTEM = [
-  'You are an expert study-notes writer.',
-  'Summarize the provided web page content as well-structured Markdown.',
-  'Output ONLY Markdown - no preamble, no code fences, no commentary.',
-  'Required structure:',
-  '# <page title>',
-  '## TL;DR',
-  '2-3 sentence overview.',
-  '## Key Points',
-  '- bullet list of the most important takeaways',
-  '## Details',
-  'short subsections or bullets preserving important facts, numbers, dates, names and definitions',
-  '## Terms & Definitions',
-  'a Markdown table ONLY if technical terms exist; otherwise omit this section',
-  'Stay faithful to the source. Never invent facts.'
+const VERBATIM_SYSTEM = [
+  'You transcribe web-page content into Markdown with total fidelity.',
+  'Reproduce ALL meaningful content of the provided page: headings, paragraphs, lists,',
+  'tables, code snippets, definitions - cleaned of ads/navigation.',
+  'If a "=== MCQs ON THIS PAGE ===" block is present, include it EXACTLY as given',
+  'under a "### MCQs" subsection, preserving numbering and lettered options.',
+  'Do NOT answer the MCQs. Do not summarize, shorten, interpret or add commentary.',
+  'Output ONLY Markdown. Start directly with the heading "## Original Content".'
+].join('\n');
+
+const ANALYSIS_SYSTEM = [
+  'You are an expert study-notes analyst.',
+  'Given page content (and any MCQs on it), output Markdown with EXACTLY these four',
+  'sections, in this order, each a "## " heading:',
+  '## What the topic is explaining',
+  '## What the MCQs are asking',
+  '## What it means',
+  '## Most important things to know',
+  'Use concise bullets. Explain concepts in simple terms and connect the questions to',
+  'the underlying ideas. No preamble before the first heading, nothing after the last.',
+  'Start directly with "## What the topic is explaining".'
 ].join('\n');
 
 const MCQ_SYSTEM = [
@@ -223,46 +229,59 @@ async function summarizePage() {
     }
 
     const pageText = result.text.slice(0, MAX_PAGE_CHARS);
-    showStatus($('sum-status'), null, `Asking ${await getModelLabel()} to summarize...`);
+
+    /* also grab MCQs detected on the page (for Variation 1) */
+    let mcqBlock = '';
+    try {
+      const [{ result: mq }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => window.__ffcampMcqData ?? null
+      });
+      const qs = (mq?.questions ?? []).filter((q) => q.options?.length >= 2).slice(0, 30);
+      if (qs.length) {
+        const list = qs
+          .map((q) => {
+            const opts = q.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
+            return `${q.qid + 1}. ${q.text}\n${opts}`;
+          })
+          .join('\n\n');
+        mcqBlock = `\n\n=== MCQs ON THIS PAGE ===\n${list}`;
+      }
+    } catch {
+      /* MCQ detection is optional for summaries */
+    }
 
     currentTitle = result.title;
-    let md = await askAI(
+    const sourceMsg = `TITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}${mcqBlock}`;
+
+    showStatus($('sum-status'), null, 'Part 1/2 - transcribing original content...');
+    const part1 = await askAI(
       [
-        { role: 'system', content: SUMMARIZE_SYSTEM },
-        {
-          role: 'user',
-          content: `Summarize this page.\n\nTITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}`
-        }
+        { role: 'system', content: VERBATIM_SYSTEM },
+        { role: 'user', content: sourceMsg }
+      ],
+      { temperature: 0.2 }
+    );
+
+    showStatus($('sum-status'), null, 'Part 2/2 - writing study analysis...');
+    const part2 = await askAI(
+      [
+        { role: 'system', content: ANALYSIS_SYSTEM },
+        { role: 'user', content: sourceMsg }
       ],
       { temperature: 0.3 }
     );
 
-    if (!/^#/.test(md)) {
-      showStatus($('mcq-status'), null, '');
-      showStatus($('sum-status'), null, 'Model added junk before the summary - retrying strict...');
-      md = await askAI(
-        [
-          {
-            role: 'system',
-            content:
-              SUMMARIZE_SYSTEM +
-              '\n\nCRITICAL: The very first characters of your reply MUST be "# ". Output zero words before the markdown heading - no classifications, no safety notes, no commentary.'
-          },
-          {
-            role: 'user',
-            content: `Summarize this page.\n\nTITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}`
-          }
-        ],
-        { temperature: 0 }
-      );
-    }
-    currentMarkdown = md;
+    currentMarkdown =
+      `# ${result.title}\n\n` +
+      `> Source: ${result.url} · Saved ${new Date().toLocaleString()}\n\n` +
+      `${part1}\n\n---\n\n${part2}\n`;
 
     const preview = $('md-preview');
     preview.textContent = currentMarkdown;
     unhide(preview);
     unhide($('sum-actions'));
-    showStatus($('sum-status'), 'ok', 'Summary ready. Save it below.');
+    showStatus($('sum-status'), 'ok', mcqBlock ? 'Done - content + MCQs + analysis ready.' : 'Done - both sections ready.');
   } catch (err) {
     showStatus($('sum-status'), 'err', err.message);
   } finally {
