@@ -152,4 +152,69 @@
 
     return { page, mcqs };
   };
+
+  /* ---------- FCC-style sidebar: completed vs incomplete blocks ---------- */
+  window.__ffcampSidebar = function () {
+    const headers = [
+      ...document.querySelectorAll(
+        'button[data-playwright-test-label="block-header-button"], button.block-header'
+      )
+    ];
+    return headers.map((h) => {
+      const passed = !!h.querySelector('[data-testid="green-pass"]');
+      const notPassed = !!h.querySelector('[data-testid="green-not-completed"]');
+      const sr = h.querySelector(".sr-only");
+      const srText = sr ? clean(sr.textContent).toLowerCase() : "";
+      const pct = srText.match(/(\d+)%\s*completed/);
+      let status;
+      if (passed) status = "completed";
+      else if (pct) status = +pct[1] >= 100 ? "completed" : "incomplete";
+      else if (notPassed) status = "incomplete";
+      else if (srText.includes(", completed")) status = "completed";
+      else status = "unknown";
+
+      const spans = [...h.querySelectorAll("span")].filter((s) => !s.classList.contains("sr-only"));
+      const last = spans[spans.length - 1];
+      const title =
+        clean(last && last.firstChild ? last.firstChild.textContent : "") ||
+        clean(h.textContent).slice(0, 60);
+
+      return {
+        title,
+        status,
+        expanded: h.getAttribute("aria-expanded") === "true",
+        panelId: h.getAttribute("aria-controls")
+      };
+    });
+  };
+
+  /* expand the first incomplete block and navigate into its first lesson */
+  window.__ffcampOpenFirstIncomplete = function () {
+    const items = window.__ffcampSidebar();
+    const target = items.find((i) => i.status === "incomplete");
+    if (!target) return { done: true, reason: "all completed" };
+
+    const headers = [
+      ...document.querySelectorAll(
+        'button[data-playwright-test-label="block-header-button"], button.block-header'
+      )
+    ];
+    const h = headers.find((x) => x.getAttribute("aria-controls") === target.panelId);
+    if (!h) return { done: true, reason: "header vanished" };
+
+    if (h.getAttribute("aria-expanded") !== "true") h.click();
+
+    const res = { done: false, opened: target.title, navigatedTo: null };
+    const panel = target.panelId ? document.getElementById(target.panelId) : null;
+    const link =
+      (panel && panel.querySelector('a[href]')) ||
+      document.querySelector(`a[href*="${(target.panelId || "").replace("-panel", "")}"]`);
+
+    if (link && link.href && link.href !== location.href) {
+      const href = link.href;
+      res.navigatedTo = href;
+      setTimeout(() => window.location.assign(href), 350);
+    }
+    return res;
+  };
 })();

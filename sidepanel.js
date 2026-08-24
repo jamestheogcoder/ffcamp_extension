@@ -1276,7 +1276,185 @@ document.querySelectorAll('.ptab').forEach((tabBtn) => {
 });
 $('set-base-select').addEventListener('change', (e) => applyPreset(e.target.value));
 
-$('btn-summarize').addEventListener('click', summarizePage);
+/* ============================== AUTOPILOT ================================ */
+/* Summarize button = full auto: skip completed lectures, open the next
+   incomplete one, summarize -> save to GitHub -> tick MCQs -> Check ->
+   Submit-and-next, then continue. Click again (⏹) to stop.            */
+
+let AUTO = false;
+const VISITED = new Map(); // url -> visit count
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function plog(msg, kind) {
+  showStatus($('sum-status'), kind ?? null, `🤖 ${msg}`);
+}
+
+async function activeTabInfo() {
+  const tab = await getActiveTab();
+  return tab ? { id: tab.id, url: tab.url || '' } : { id: 0, url: '' };
+}
+
+async function injectRunner(tabId, arg) {
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (o) => window.__ffcampRun(o),
+    args: [arg || {}]
+  });
+  return result;
+}
+
+async function isCourseIndex(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => !!(window.__ffcampSidebar && window.__ffcampSidebar().length > 0)
+    });
+    return !!result;
+  } catch {
+    return false;
+  }
+}
+
+async function openFirstIncompleteSafe(tabId) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      if (typeof window.__ffcampOpenFirstIncomplete !== 'function')
+        return { done: true, reason: 'no sidebar fn' };
+      return window.__ffcampOpenFirstIncomplete();
+    }
+  });
+  return result || { done: true };
+}
+
+async function waitNav(tabId, fromUrl, timeoutMs = 10000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    await sleepMs(500);
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if ((t.url || '') !== fromUrl && t.status === 'complete') {
+        await sleepMs(1200); // let the lesson render
+        return t.url;
+      }
+    } catch {
+      /* tab mid-navigation */
+    }
+  }
+  return fromUrl;
+}
+
+async function autoPilot() {
+  AUTO = true;
+  VISITED.clear();
+  const btn = $('btn-summarize');
+  btn.textContent = '⏹ Stop autopilot';
+
+  try {
+    for (let step = 1; step <= 40 && AUTO; step++) {
+      const { id: tabId, url: pageUrl } = await activeTabInfo();
+      if (!tabId) throw new Error('No active tab.');
+
+      /* ---------- course index: pick next incomplete lecture ---------- */
+      if (await isCourseIndex(tabId)) {
+        plog(`[pass ${step}] scanning sidebar for incomplete lectures…`);
+        const r = await openFirstIncompleteSafe(tabId);
+        if (r.done) {
+          plog('🎉 All lectures completed — nothing left to do.', 'ok');
+          break;
+        }
+        plog(`opening “${r.opened || 'next lecture'}”…`);
+        if (r.navigatedTo) await waitNav(tabId, pageUrl);
+        else await sleepMs(1500);
+        continue;
+      }
+
+      /* ---------- lesson page: summarize + save + solve + submit ------- */
+      const seen = (VISITED.get(pageUrl) || 0) + 1;
+      VISITED.set(pageUrl, seen);
+      if (seen > 2) {
+        plog('Same page keeps reappearing — stopping to avoid a loop.', 'err');
+        break;
+      }
+
+      plog(`[${seen}] scraping “${pageUrl.split('/').filter(Boolean).pop()}”…`);
+      const scraped = await injectRunner(tabId, { scroll: true });
+
+      if (!scraped?.page?.text) {
+        plog('Could not read this page — trying the next sidebar item…', 'err');
+        await sleepMs(800);
+        continue;
+      }
+
+      currentTitle = scraped.page.title;
+      currentUrl = scraped.page.url;
+
+      const pageText = scraped.page.text.slice(0, MAX_PAGE_CHARS);
+      let mcqsSection = '';
+      const qs = (scraped.mcqs ?? []).filter((q) => q.options?.length >= 2).slice(0, 30);
+      if (qs.length) {
+        const list = qs
+          .map((q) => {
+            const opts = q.options
+              .map((o, i) => `- **${String.fromCharCode(65 + i)}.** ${o}`)
+              .join('\n');
+            return `**Q${q.qid + 1}. ${q.text}**\n\n${opts}`;
+          })
+          .join('\n\n');
+        mcqsSection = `\n\n### 📝 MCQs on this page\n\n${list}\n`;
+      }
+      const demoted = pageText.replace(/^(#{1,3})(\s)/gm, (_m, h, sp) => '#'.repeat(h.length + 3) + sp);
+      const part1 = '## Original Content\n\n' + demoted + mcqsSection;
+      const sourceMsg = `TITLE: ${currentTitle}\nURL: ${currentUrl}\n\nCONTENT:\n${pageText}`;
+
+      plog(`[${seen}] asking AI for study analysis…`);
+      const part2 = await askAI(
+        [
+          { role: 'system', content: ANALYSIS_SYSTEM },
+          { role: 'user', content: sourceMsg }
+        ],
+        { temperature: 0.3 }
+      );
+
+      currentMarkdown =
+        `# ${currentTitle}\n\n` +
+        `> Source: ${currentUrl} · Saved ${new Date().toLocaleString()}\n\n` +
+        `${part1}\n\n<!--FFCAMP-SPLIT-->\n\n${part2}\n`;
+
+      plog(`[${seen}] saving to GitHub…`);
+      await saveSummaryToGithub();
+
+      plog(`[${seen}] answering MCQs…`);
+      await autoSolvePage();
+
+      plog(`[${seen}] pressing Check → Submit-next…`);
+      await pressNextOnPage();
+
+      plog(`[${seen}] done ✓ moving on…`);
+      await sleepMs(1800);
+
+      /* finishing a challenge lands on the index or the next challenge;
+         the loop handles both */
+    }
+  } catch (e) {
+    plog(`Autopilot stopped: ${e.message}`, 'err');
+  } finally {
+    AUTO = false;
+    btn.textContent = 'Summarize this page';
+  }
+}
+
+$('btn-summarize').addEventListener('click', () => {
+  if (AUTO) {
+    AUTO = false;
+    plog('Stopping after the current step…');
+    $('btn-summarize').textContent = 'Summarize this page';
+    $('btn-summarize').disabled = false;
+  } else {
+    autoPilot();
+  }
+});
 $('btn-github').addEventListener('click', saveSummaryToGithub);
 $('btn-download').addEventListener('click', downloadSummary);
 $('btn-solve').addEventListener('click', solveMcq);
