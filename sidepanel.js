@@ -995,7 +995,7 @@ function clickCheckAnswerButton() {
 }
 
 /* injected into the page; must be self-contained */
-function probeAndClickSubmitNext() {
+function probeAndClickSubmitNext(shouldClick) {
   const re = /submit\s*and\s*go\s*to\s*next|go\s*to\s*next\s*challenge/i;
   const buttons = [
     ...document.querySelectorAll('button[type="button"], button, [role="button"]')
@@ -1004,6 +1004,7 @@ function probeAndClickSubmitNext() {
     (b) => re.test(b.textContent.trim()) && b.getAttribute('aria-disabled') !== 'true'
   );
   if (!t) return false;
+  if (!shouldClick) return true; // detection-only probe
   if (t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
   t.click();
   return true;
@@ -1014,6 +1015,16 @@ async function pressNextOnPage() {
   try {
     const tab = await getActiveTab();
     if (!tab?.id) throw new Error('No active tab found.');
+
+    /* human-like pause before pressing Check */
+    const preWait = randMs();
+    showStatus(
+      $('mcq-status'),
+      null,
+      `⏳ Reading answers… pressing Check in ${Math.round(preWait / 1000)}s`
+    );
+    await sleepMs(preWait);
+
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: clickCheckAnswerButton
@@ -1022,7 +1033,8 @@ async function pressNextOnPage() {
       // no check button - maybe page already shows the submit-next button
       const [{ result: direct }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: probeAndClickSubmitNext
+        func: probeAndClickSubmitNext,
+        args: [true]
       });
       if (direct) {
         showStatus($('mcq-status'), 'ok', 'Advanced to next challenge.');
@@ -1035,22 +1047,52 @@ async function pressNextOnPage() {
     showStatus(
       $('mcq-status'),
       null,
-      'Checked answer - waiting for "Submit and go to next challenge"...'
+      'Checked answer - watching for "Submit and go to next challenge"...'
     );
 
-    const deadline = Date.now() + 12000;
+    const deadline = Date.now() + 25000; // longer window: we linger on purpose
     let advanced = false;
+    let appearedAt = 0;
+    let lingeredS = 0;
+
     while (Date.now() < deadline && !advanced) {
-      await new Promise((r) => setTimeout(r, 700));
+      await sleepMs(700);
+
+      /* detection-only probe */
+      const [{ result: visible }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: probeAndClickSubmitNext,
+        args: [false]
+      });
+      if (!visible) continue;
+
+      if (!appearedAt) appearedAt = Date.now();
+      const holdUntil = appearedAt + randMs(); // linger like a human
+      if (Date.now() < holdUntil) {
+        lingeredS = Math.ceil((holdUntil - Date.now()) / 1000);
+        showStatus(
+          $('mcq-status'),
+          null,
+          `Submit-and-next spotted - moving on in ~${lingeredS}s`
+        );
+        continue;
+      }
+
       const [{ result: hit }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: probeAndClickSubmitNext
+        func: probeAndClickSubmitNext,
+        args: [true]
       });
       advanced = !!hit;
+      lingeredS = Math.round((Date.now() - appearedAt) / 1000);
     }
 
     if (advanced) {
-      showStatus($('mcq-status'), 'ok', 'Checked answer + moved to next challenge.');
+      showStatus(
+        $('mcq-status'),
+        'ok',
+        `Checked answer + moved to next challenge (paused ${lingeredS || Math.round(randMs() / 1000)}s)`
+      );
     } else {
       showStatus($('mcq-status'), 'ok', `Clicked "${result.text}" on the page.`);
     }
@@ -1285,6 +1327,10 @@ let AUTO = false;
 const VISITED = new Map(); // url -> visit count
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* human-like timing: never a fixed pattern */
+const randMs = (min = 5000, max = 10000) =>
+  Math.floor(min + Math.random() * (max - min));
+
 function plog(msg, kind) {
   showStatus($('sum-status'), kind ?? null, `🤖 ${msg}`);
 }
@@ -1431,8 +1477,10 @@ async function autoPilot() {
       plog(`[${seen}] pressing Check → Submit-next…`);
       await pressNextOnPage();
 
-      plog(`[${seen}] done ✓ moving on…`);
-      await sleepMs(1800);
+      plog(`[${seen}] done ✓`);
+      const breather = randMs();
+      plog(`taking a ${Math.round(breather / 1000)}s breather before the next one…`);
+      await sleepMs(breather);
 
       /* finishing a challenge lands on the index or the next challenge;
          the loop handles both */
