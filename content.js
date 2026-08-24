@@ -259,79 +259,127 @@
      order: plain textarea -> monaco global -> monaco DOM -> CodeMirror 6 */
   window.__ffcampFillCode = async function (code) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const norm = (s) => String(s || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    const firstLine = code.split("\n")[0].trim().slice(0, 25);
 
-    // 1) plain textarea (NOT Monaco's hidden inputarea)
-    const ta = [...document.querySelectorAll("textarea")].find(
+    /* visual verification against the rendered editor */
+    let ed = document.querySelector(".monaco-editor");
+    const renderedOk = () =>
+      ed && norm(ed.querySelector(".view-lines")?.innerText).includes(norm(firstLine));
+
+    /* ---------- A) Monaco textarea.inputarea (the real input buffer) ----- */
+    const ta =
+      document.querySelector(".monaco-editor textarea.inputarea") ||
+      document.querySelector("textarea.inputarea.monaco-mouse-cursor-text");
+
+    if (ta) {
+      if (!ed) ed = ta.closest(".monaco-editor");
+      // place the cursor by clicking the visible code area first
+      const vl = ed?.querySelector(".view-lines");
+      if (vl) {
+        vl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        vl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        vl.click();
+      }
+      ta.focus({ preventScroll: true });
+      await sleep(120);
+
+      /* S1: native value setter + input event */
+      try {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value"
+        ).set;
+        setter.call(ta, code);
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        await sleep(200);
+        if (renderedOk()) return { filled: true, kind: "monaco-native-setter" };
+      } catch {}
+
+      /* S2: select-all + insertText through the focused buffer */
+      try {
+        ta.focus();
+        document.execCommand("selectAll", false, null);
+        document.execCommand("insertText", false, code);
+        await sleep(200);
+        if (renderedOk()) return { filled: true, kind: "monaco-execcommand" };
+      } catch {}
+
+      /* S3: synthetic paste on the buffer AND on the view */
+      for (const target of [ta, ed?.querySelector(".view-lines"), ed]) {
+        if (!target) continue;
+        try {
+          const dt = new DataTransfer();
+          dt.setData("text/plain", code);
+          target.focus?.();
+          target.dispatchEvent(
+            new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })
+          );
+          await sleep(220);
+          if (renderedOk()) return { filled: true, kind: "monaco-paste" };
+        } catch {}
+      }
+
+      /* S4: per-character key/beforeinput simulation (slow but stubborn) */
+      try {
+        ta.focus();
+        document.execCommand("selectAll", false, null);
+        document.execCommand("delete", false, null);
+        for (const ch of code) {
+          ta.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true }));
+          ta.dispatchEvent(
+            new InputEvent("beforeinput", {
+              bubbles: true, cancelable: true, inputType: "insertText", data: ch
+            })
+          );
+          ta.dispatchEvent(new InputEvent("input", {
+            bubbles: true, inputType: "insertText", data: ch
+          }));
+          ta.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+        }
+        await sleep(300);
+        if (renderedOk()) return { filled: true, kind: "monaco-chars" };
+      } catch {}
+    }
+
+    /* ---------- B) Monaco with global exposed ---------------------------- */
+    if (window.monaco?.editor) {
+      const model = window.monaco.editor.getModels()[0];
+      if (model) {
+        model.setValue(code);
+        return { filled: true, kind: "monaco-global" };
+      }
+    }
+
+    /* ---------- C) plain textarea outside monaco ------------------------- */
+    const plain = [...document.querySelectorAll("textarea")].find(
       (t) =>
         t.getClientRects().length > 0 &&
         !t.closest(".monaco-editor") &&
         !t.closest(".cm-editor")
     );
-    if (ta) {
-      ta.focus();
-      ta.value = code;
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-      ta.dispatchEvent(new Event("change", { bubbles: true }));
+    if (plain) {
+      plain.focus();
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value"
+      ).set;
+      setter.call(plain, code);
+      plain.dispatchEvent(new Event("input", { bubbles: true }));
       return { filled: true, kind: "textarea" };
     }
 
-    // 2) Monaco with global exposed
-    if (window.monaco?.editor) {
-      const model = window.monaco.editor.getModels()[0];
-      if (model) {
-        model.setValue(code);
-        return { filled: true, kind: "monaco" };
-      }
+    /* ---------- D) CodeMirror 6 ------------------------------------------ */
+    const cm = document.querySelector(".cm-content[contenteditable='true']");
+    if (cm) {
+      cm.focus();
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, code);
+      return { filled: true, kind: "codemirror" };
     }
 
-    // 3) Monaco via DOM (bundled builds don't expose window.monaco)
-    const ed = document.querySelector(".monaco-editor");
-    if (ed && ed.getClientRects().length > 0) {
-      const inputarea =
-        ed.querySelector(".inputarea") ||
-        ed.querySelector(".view-lines") ||
-        ed;
-
-      // attempt A: real typing through the hidden input area
-      inputarea.focus();
-      try {
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, code);
-      } catch {}
-
-      const firstLine = code.split("\n")[0].trim().slice(0, 25);
-      const typedOk = () =>
-        (ed.querySelector(".view-lines")?.innerText || "")
-          .replace(/\u00a0/g, " ")
-          .includes(firstLine);
-
-      await sleep(200);
-      if (typedOk()) return { filled: true, kind: "monaco-dom-typed" };
-
-      // attempt B: synthetic paste event
-      try {
-        const dt = new DataTransfer();
-        dt.setData("text/plain", code);
-        targetPaste: {
-          const evTarget =
-            ed.querySelector(".inputarea") ||
-            ed.querySelector(".view-lines") ||
-            ed;
-          evTarget.dispatchEvent(
-            new ClipboardEvent("paste", {
-              clipboardData: dt,
-              bubbles: true,
-              cancelable: true
-            })
-          );
-          break targetPaste;
-        }
-      } catch {}
-      await sleep(250);
-      if (typedOk()) return { filled: true, kind: "monaco-dom-paste" };
-
-      return { filled: false, kind: "monaco-unknown" };
-    }
+    return { filled: false, kind: "none" };
+  };
 
     // 4) CodeMirror 6
     const cm = document.querySelector(".cm-content[contenteditable='true']");
