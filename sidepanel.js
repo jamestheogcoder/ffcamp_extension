@@ -71,7 +71,22 @@ async function saveSettings() {
     folder: $('set-folder').value.trim() || DEFAULTS.folder
   };
   await chrome.storage.local.set(values);
-  flashStatus($('settings-status'), 'ok', 'Settings saved.');
+
+  const warnings = [];
+  if (values.openrouterKey && !values.openrouterKey.startsWith('sk-or-v1-')) {
+    warnings.push('⚠️ That does not look like an OpenRouter key - it should start with "sk-or-v1-".');
+  }
+  if (values.githubToken && !/^(ghp_|github_pat_|gho_)/.test(values.githubToken)) {
+    warnings.push('⚠️ That does not look like a GitHub token (expected ghp_/github_pat_/gho_).');
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(values.repo)) {
+    warnings.push('⚠️ Repo must be owner/name - e.g. jamestheogcoder/ffcamp_extension.');
+  }
+  flashStatus(
+    $('settings-status'),
+    warnings.length ? 'err' : 'ok',
+    warnings.length ? warnings.join(' ') : 'Settings saved.'
+  );
 }
 
 /* ============================== OpenRouter ============================== */
@@ -119,7 +134,10 @@ async function testConnections() {
 
   try {
     const key = (s.openrouterKey || '').trim();
-    lines.push(`OpenRouter key stored: ${key ? `${key.slice(0, 12)}...${key.slice(-4)} (${key.length} chars)` : 'MISSING'}`);
+    const keyLooksValid = /^sk-or-v1-[\w-]+$/.test(key);
+    lines.push(
+      `OpenRouter key stored: ${key ? `${key.slice(0, 12)}...${key.slice(-4)} (${key.length} chars) ${keyLooksValid ? '[format OK]' : '❌ WRONG FORMAT - must start with sk-or-v1-'}` : 'MISSING'}`
+    );
     const orRes = await fetch('https://openrouter.ai/api/v1/key', {
       headers: { Authorization: `Bearer ${key}` }
     });
