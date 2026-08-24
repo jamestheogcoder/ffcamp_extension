@@ -49,6 +49,42 @@ const MCQ_SYSTEM_AUTO = [
 
 let currentMarkdown = '';
 let currentTitle = '';
+let currentUrl = '';
+
+/* map a page URL -> nested folder path + file name
+   e.g. .../learn/javascript-v9/lecture-x/what-is-y
+   -> { dir: 'javascript-v9/lecture-x', file: 'what-is-y' }        */
+function sanitizeSeg(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/\.(html?|php|aspx)$/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+function urlToNotePath(url) {
+  try {
+    const u = new URL(url);
+    const SKIP_FIRST = new Set([
+      'learn', 'courses', 'course', 'challenges', 'challenge', 'tutorial',
+      'tutorials', 'docs', 'documentation', 'wiki', 'lesson', 'lessons',
+      'module', 'modules', 'questions', 'quiz', 'quizzes', 'practice', 'exercises'
+    ]);
+    let segs = u.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((s) => sanitizeSeg(decodeURIComponent(s)))
+      .filter(Boolean);
+    while (segs.length && SKIP_FIRST.has(segs[0])) segs.shift();
+    if (!segs.length) return null;
+    const file = segs.pop();
+    const dir = segs.slice(-4).join('/'); // cap folder depth at 4
+    return { dir, file };
+  } catch {
+    return null;
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -243,6 +279,7 @@ async function summarizePage() {
     }
 
     currentTitle = result.page.title;
+    currentUrl = result.page.url;
 
     /* Variation 1 - the ACTUAL scraped string, no AI.
        Headings demoted (+3 levels) so they nest under the document,
@@ -291,7 +328,19 @@ async function saveSummaryToGithub() {
       );
     }
 
-    const path = `${s.folder.replace(/^\/+|\/+$/g, '')}/${fileName(currentTitle)}.md`;
+    /* URL-mirrored path: docs/summaries/<course>/<lecture>/<slug>.md */
+    const base = s.folder.replace(/^\/+|\/+$/g, '');
+    const fromUrl = currentUrl ? urlToNotePath(currentUrl) : null;
+    let dirPart = base;
+    let fName;
+    if (fromUrl) {
+      if (fromUrl.dir) dirPart = `${base}/${fromUrl.dir}`;
+      fName = `${fromUrl.file}.md`;
+    } else {
+      fName = `${fileName(currentTitle)}.md`;
+    }
+    const path = `${dirPart}/${fName}`;
+    const altPath = `${dirPart}/${(fromUrl ? fromUrl.file : fileName(currentTitle))}-${Date.now()}.md`;
     const api = `https://api.github.com/repos/${s.repo}/contents/${path
       .split('/')
       .map(encodeURIComponent)
@@ -316,10 +365,9 @@ async function saveSummaryToGithub() {
     let res = await commit(path);
     if (res.status === 422) {
       // file already exists -> never overwrite, add timestamp
-      const alt = `${s.folder.replace(/^\/+|\/+$/g, '')}/${fileName(currentTitle)}-${Date.now()}.md`;
-      res = await commit(alt);
+      res = await commit(altPath);
       if (res.ok) {
-        showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${alt}).`);
+        showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${altPath}). ${pagesLink(s.repo, altPath)}`);
         return;
       }
     }
@@ -328,16 +376,17 @@ async function saveSummaryToGithub() {
       const body = await res.json().catch(() => ({}));
       throw new Error(`GitHub ${res.status}: ${body.message ?? 'upload failed'}`);
     }
-    const [owner, repoName] = s.repo.split('/');
-    const pagesUrl = `https://${owner}.github.io/${repoName}/?f=${encodeURIComponent(
-      `${fileName(currentTitle)}.md`
-    )}`;
-    showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${path}). Live: ${pagesUrl}`);
+    showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${path}). ${pagesLink(s.repo, path)}`);
   } catch (err) {
     showStatus($('sum-status'), 'err', err.message);
   } finally {
     setBusy(el, false);
   }
+}
+
+function pagesLink(repo, path) {
+  const [owner, repoName] = repo.split('/');
+  return `Live: https://${owner}.github.io/${repoName}/?p=${encodeURIComponent(path)}`;
 }
 
 function downloadSummary() {
