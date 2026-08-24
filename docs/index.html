@@ -91,17 +91,27 @@
   #md { max-width:920px; margin:0 auto; padding:30px 26px 100px; position:relative; }
   .nb {
     border:var(--bw) solid var(--ink); box-shadow:var(--shadow);
-    padding:26px 28px; margin-bottom:34px; background:var(--side);
+    padding:26px 28px; margin-bottom:0; background:var(--side);
   }
   .nb.orig { background:var(--yellow); transform:rotate(-0.35deg); }
-  .nb.summ { background:var(--blue); transform:rotate(0.35deg); }
+  .nb.summ { background:var(--pink); transform:rotate(0.35deg); }
+  .divider {
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    margin:26px 0; font-size:13px; letter-spacing:2px; text-transform:uppercase;
+    color:var(--paper);
+  }
+  .divider::before, .divider::after {
+    content:""; flex:1; height:6px; background:repeating-linear-gradient(45deg,var(--ink),var(--ink) 10px,var(--yellow) 10px,var(--yellow) 20px);
+    border:2px solid var(--ink);
+  }
+  .divider span { background:var(--ink); padding:6px 14px; border:3px solid var(--ink); box-shadow:4px 4px 0 rgba(17,17,17,.35); }
   .nb-tag {
     display:inline-block; background:var(--ink); color:var(--paper);
     font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
     padding:4px 12px; margin-bottom:18px; font-weight:800;
   }
   .nb.orig > .nb-tag { background:var(--ink); color:var(--yellow); }
-  .nb.summ > .nb-tag { background:var(--ink); color:var(--blue); }
+  .nb.summ > .nb-tag { background:var(--ink); color:var(--pink); }
 
   #md h1,#md h2,#md h3,#md h4,#md h5,#md h6 { margin:20px 0 10px; line-height:1.25; font-weight:900; }
   #md h1{font-size:27px} #md h2{font-size:21px} #md h3{font-size:17px} #md h4{font-size:15px}
@@ -163,6 +173,7 @@
     #sidebar { position:fixed; left:0; top:0; bottom:0; z-index:40; transform:translateX(-105%); transition:transform .18s; }
     #sidebar.open { transform:none; box-shadow:14px 0 0 rgba(17,17,17,.25); }
     .nb { padding:20px 18px; transform:none !important; }
+    .nb.summ { margin-top:26px; }
   }
 </style>
 </head>
@@ -440,7 +451,10 @@ let EDITING = false;
     md.innerHTML =
       `<blockquote class="meta">${esc(CURRENT.path.split("/").pop())}</blockquote>` +
       `<section class="nb orig"><span class="nb-tag">Box 1 · Original Content · as scraped</span>${marked.parse(rawA || "*nothing scraped*")}</section>` +
-      `<section class="nb summ"><span class="nb-tag">Box 2 · Study Analysis · by AI</span>${marked.parse(rawB != null && rawB.trim() ? rawB : "_No AI section in this note._")}</section>` +
+      (rawB != null
+        ? `<div class="divider"><span>⚡ AI Analysis ⚡</span></div>` +
+          `<section class="nb summ"><span class="nb-tag">Box 2 · Study Analysis · by AI</span>${marked.parse(rawB.trim() ? rawB : "_No AI section in this note._")}</section>`
+        : "") +
       '<button id="btn-edit" title="Edit this file">✏️</button>';
     $("btn-edit").onclick = startEditing;
   }
