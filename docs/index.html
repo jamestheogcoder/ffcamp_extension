@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FFCamp Study Notes</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root { --bg:#0f1420; --bg2:#171e2e; --border:#2a3550; --text:#e7ecf5; --muted:#93a0b8; --accent:#4e8df7; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); max-width:860px; margin:0 auto; padding:32px 20px 80px; }
+  h1 { font-size:22px; margin-bottom:4px; } h1 a { color:var(--text); text-decoration:none; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:28px; }
+  .card { display:block; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; color:var(--text); text-decoration:none; transition:border-color .15s; }
+  .card:hover { border-color:var(--accent); }
+  .card .t { font-weight:600; margin-bottom:2px; }
+  .card .d { color:var(--muted); font-size:12px; }
+  #content { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:28px 30px; overflow-wrap:break-word; }
+  #content h1,#content h2,#content h3 { margin:22px 0 10px; line-height:1.3; } #content h1{font-size:26px} #content h2{font-size:20px;color:#9cc3ff} #content h3{font-size:17px}
+  #content p,#content li { margin:8px 0; } #content ul,#content ol { padding-left:24px; }
+  #content code { background:#0a0e18; border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:13px; }
+  #content pre { background:#0a0e18; border:1px solid var(--border); border-radius:8px; padding:14px; overflow:auto; margin:12px 0; }
+  #content pre code { border:none; background:none; padding:0; }
+  #content table { border-collapse:collapse; margin:12px 0; width:100%; } #content th,#content td { border:1px solid var(--border); padding:7px 11px; text-align:left; } #content th { background:var(--bg2); }
+  #content blockquote { border-left:3px solid var(--accent); padding:4px 16px; color:var(--muted); margin:12px 0; }
+  #content hr { border:none; border-top:1px solid var(--border); margin:24px 0; }
+  a { color:var(--accent); }
+  .back { display:inline-block; margin-bottom:18px; font-size:13px; }
+  .loading { color:var(--muted); }
+</style>
+</head>
+<body>
+  <h1><a href="./">📚 FFCamp Study Notes</a></h1>
+  <div class="sub">Auto-published summaries · served from the repo's docs/summaries folder</div>
+
+  <a href="./" id="back" class="back" hidden>← All notes</a>
+  <div id="list"></div>
+  <div id="content" hidden></div>
+
+<script>
+(function () {
+  // derive owner/repo from the Pages URL itself -> works for any fork/repo name
+  const owner = location.hostname.split(".")[0];
+  const repo = (location.pathname.replace(/^\/+/, "").split("/")[0]) || "ffcamp_extension";
+  const branch = "main";
+  const apiDir = `https://api.github.com/repos/${owner}/${repo}/contents/docs/summaries`;
+  const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/docs/summaries`;
+
+  const listEl = document.getElementById("list");
+  const contentEl = document.getElementById("content");
+  const backEl = document.getElementById("back");
+  const file = new URLSearchParams(location.search).get("f");
+
+  function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  async function showList() {
+    try {
+      const res = await fetch(apiDir);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let items = await res.json();
+      items = items.filter((i) => i.name.toLowerCase().endsWith(".md")).sort((a, b) => b.name.localeCompare(a.name));
+      if (!items.length) {
+        listEl.innerHTML = '<p class="loading">No summaries yet - save one from the extension and refresh.</p>';
+        return;
+      }
+      listEl.innerHTML = items
+        .map((i) => {
+          const pretty = i.name.replace(/\.md$/i, "").replace(/-/g, " ");
+          return `<a class="card" href="?f=${encodeURIComponent(i.name)}"><div class="t">${esc(pretty)}</div><div class="d">${i.name}</div></a>`;
+        })
+        .join("");
+    } catch (e) {
+      listEl.innerHTML = `<p class="loading">Could not load notes (${esc(e.message)}).</p>`;
+    }
+  }
+
+  async function showNote(name) {
+    backEl.hidden = false;
+    contentEl.hidden = false;
+    contentEl.innerHTML = '<p class="loading">Loading…</p>';
+    try {
+      const res = await fetch(`${rawBase}/${encodeURIComponent(name)}?t=${Date.now()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const md = await res.text();
+      if (window.marked) {
+        contentEl.innerHTML = marked.parse(md);
+      } else {
+        contentEl.innerHTML = `<pre style="white-space:pre-wrap">${esc(md)}</pre>`;
+      }
+      document.title = name.replace(/\.md$/i, "") + " · FFCamp";
+    } catch (e) {
+      contentEl.innerHTML = `<p class="loading">Could not load "${esc(name)}" (${esc(e.message)}).</p>`;
+    }
+  }
+
+  if (file) showNote(file);
+  else showList();
+})();
+</script>
+</body>
+</html>

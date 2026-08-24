@@ -3,12 +3,12 @@
 /* ============================== constants =============================== */
 
 const DEFAULTS = {
-  openrouterKey: 'Openrouter_api_key',
+  openrouterKey: '',
   model: 'openrouter/free',
-  githubToken: 'github_token',
-  repo: 'repo',
+  githubToken: '',
+  repo: '',
   branch: 'main',
-  folder: 'ffcamp-summaries'
+  folder: 'docs/summaries'
 };
 
 const MAX_PAGE_CHARS = 60000;
@@ -66,7 +66,13 @@ const $ = (id) => document.getElementById(id);
 
 async function getSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
-  return { ...DEFAULTS, ...stored };
+  const merged = { ...DEFAULTS, ...stored };
+  // v1.2.1 migration: old summaries folder -> Pages-served docs path
+  if (merged.folder === 'ffcamp-summaries') {
+    merged.folder = DEFAULTS.folder;
+    chrome.storage.local.set({ folder: merged.folder });
+  }
+  return merged;
 }
 
 function fillSettingsForm(s) {
@@ -337,7 +343,11 @@ async function saveSummaryToGithub() {
       const body = await res.json().catch(() => ({}));
       throw new Error(`GitHub ${res.status}: ${body.message ?? 'upload failed'}`);
     }
-    showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${path}).`);
+    const [owner, repoName] = s.repo.split('/');
+    const pagesUrl = `https://${owner}.github.io/${repoName}/?f=${encodeURIComponent(
+      `${fileName(currentTitle)}.md`
+    )}`;
+    showStatus($('sum-status'), 'ok', `Committed to ${s.repo} (${path}). Live: ${pagesUrl}`);
   } catch (err) {
     showStatus($('sum-status'), 'err', err.message);
   } finally {
