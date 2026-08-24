@@ -508,7 +508,6 @@ async function testConnections() {
   setBusy($('btn-test'), true);
   const s = await getSettings();
   const lines = [];
-  const key = (s.apiKey || '').trim();
 
   try {
     const accs = (s.accounts || []).filter(
