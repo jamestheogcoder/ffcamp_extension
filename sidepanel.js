@@ -116,6 +116,11 @@ function urlToNotePath(url) {
 }
 
 const $ = (id) => document.getElementById(id);
+/* safe write — never throws even if markup is from a different version */
+function setVal(id, v) {
+  const el = $(id);
+  if (el) el.value = v;
+}
 
 /* =============================== settings =============================== */
 
@@ -170,15 +175,15 @@ function fillSettingsForm(s) {
     t.classList.toggle('active', t.dataset.cat === s.cat)
   );
   const act = (s.accounts || []).find((a) => a.id === s.activeId) || {};
-  $('set-acct-name').value = act.name || '';
+  setVal('set-acct-name', act.name || '');
   fillPresetSelect(s.cat, s.presetId);
-  $('set-base').value = s.baseUrl;
-  $('set-prov-key').value = s.apiKey;
-  $('set-model').value = s.model;
-  $('set-gh-token').value = s.githubToken;
-  $('set-repo').value = s.repo;
-  $('set-branch').value = s.branch;
-  $('set-folder').value = s.folder;
+  setVal('set-base', s.baseUrl);
+  setVal('set-prov-key', s.apiKey);
+  setVal('set-model', s.model);
+  setVal('set-gh-token', s.githubToken);
+  setVal('set-repo', s.repo);
+  setVal('set-branch', s.branch);
+  setVal('set-folder', s.folder);
 }
 
 function fillPresetSelect(cat, presetId) {
@@ -392,6 +397,7 @@ $('acct-list').addEventListener('change', async (e) => {
 });
 
 $('b-acct-add').addEventListener('click', async () => {
+  revealEditor(); // respond instantly, even if storage work below fails
   try {
     const stored = await getSettings();
     let accounts = (stored.accounts || []).map((a) => ({ ...a }));
@@ -412,11 +418,11 @@ $('b-acct-add').addEventListener('click', async () => {
     await persistAccounts(accounts, acct.id);
     fillSettingsForm(await getSettings());
     renderAccounts();
-    revealEditor();
     logLine(`➕ New account slot added (${accounts.length} total). Configure it, then Save account.`, 'info');
-    flashStatus($('settings-status'), null, 'New slot added below — configure and press “Save account”.');
+    flashStatus($('settings-status'), null, `New slot “${acct.name}” added — set provider, key & model, then “Save account”.`);
   } catch (e) {
     flashStatus($('settings-status'), 'err', `❌ Add failed: ${e.message}`);
+    logLine(`❌ ADD failed — ${e.message}`, 'err');
   }
 });
 
