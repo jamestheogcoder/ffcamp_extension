@@ -1175,6 +1175,42 @@ $('btn-autosolve').addEventListener('click', autoSolvePage);
 $('btn-next').addEventListener('click', pressNextOnPage);
 $('btn-save-acct').addEventListener('click', saveSettings);
 $('btn-save-github').addEventListener('click', saveGithub);
+
+/* live-test the form as typed (no save needed): "what is 2+2" */
+$('btn-live-test').addEventListener('click', async () => {
+  const acct = {
+    id: 'live-test', enabled: true,
+    cat: currentCat(),
+    presetId: $('set-base-select').value,
+    baseUrl: $('set-base').value.trim().replace(/\/+$/, ''),
+    apiKey: $('set-prov-key').value.trim(),
+    model: $('set-model').value.trim()
+  };
+  const el = $('live-status');
+  const say = (kind, msg) => { el.hidden = false; el.className = `status ${kind || ''}`; el.textContent = msg; };
+
+  if (!acct.baseUrl || !acct.model) return say('err', '⚠️ Base URL and Model are required to test.');
+  if (!acct.apiKey && !/localhost|127\.0\.0\.1/.test(acct.baseUrl))
+    return say('err', '⚠️ Paste an API key first.');
+
+  setBusy($('btn-live-test'), true);
+  say(null, `⚡ Pinging ${acct.model}…`);
+  const t0 = performance.now();
+  try {
+    const reply = await runAccount(
+      acct,
+      [{ role: 'user', content: 'What is 2+2? Reply with only the number, nothing else.' }],
+      { temperature: 0 }
+    );
+    const ms = Math.round(performance.now() - t0);
+    if (/\b4\b/.test(reply)) say('ok', `✅ Working — replied "${reply.slice(0, 30)}" (${ms}ms)`);
+    else say('ok', `⚠️ Responded (${ms}ms) but reply was: "${reply.slice(0, 60)}"`);
+  } catch (e) {
+    say('err', `❌ Not working: ${String(e.message).slice(0, 160)}`);
+  } finally {
+    setBusy($('btn-live-test'), false);
+  }
+});
 $('btn-test').addEventListener('click', testConnections);
 
 getSettings().then(fillSettingsForm);
