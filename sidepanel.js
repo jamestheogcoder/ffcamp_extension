@@ -13,16 +13,6 @@ const DEFAULTS = {
 
 const MAX_PAGE_CHARS = 60000;
 
-const VERBATIM_SYSTEM = [
-  'You transcribe web-page content into Markdown with total fidelity.',
-  'Reproduce ALL meaningful content of the provided page: headings, paragraphs, lists,',
-  'tables, code snippets, definitions - cleaned of ads/navigation.',
-  'If a "=== MCQs ON THIS PAGE ===" block is present, include it EXACTLY as given',
-  'under a "### MCQs" subsection, preserving numbering and lettered options.',
-  'Do NOT answer the MCQs. Do not summarize, shorten, interpret or add commentary.',
-  'Output ONLY Markdown. Start directly with the heading "## Original Content".'
-].join('\n');
-
 const ANALYSIS_SYSTEM = [
   'You are an expert study-notes analyst.',
   'Given page content (and any MCQs on it), output Markdown with EXACTLY these four',
@@ -225,51 +215,44 @@ async function summarizePage() {
     });
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.__ffcampPageData ?? null
+      func: (o) => window.__ffcampRun(o),
+      args: [{ scroll: true }]
     });
 
-    if (!result?.text) {
+    if (!result?.page?.text) {
       throw new Error(
         'Could not read this page. Reload the tab, then click the FFCamp icon once more and retry (browser pages like chrome:// are not readable).'
       );
     }
 
-    const pageText = result.text.slice(0, MAX_PAGE_CHARS);
+    const pageText = result.page.text.slice(0, MAX_PAGE_CHARS);
 
-    /* also grab MCQs detected on the page (for Variation 1) */
-    let mcqBlock = '';
-    try {
-      const [{ result: mq }] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => window.__ffcampMcqData ?? null
-      });
-      const qs = (mq?.questions ?? []).filter((q) => q.options?.length >= 2).slice(0, 30);
-      if (qs.length) {
-        const list = qs
-          .map((q) => {
-            const opts = q.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
-            return `${q.qid + 1}. ${q.text}\n${opts}`;
-          })
-          .join('\n\n');
-        mcqBlock = `\n\n=== MCQs ON THIS PAGE ===\n${list}`;
-      }
-    } catch {
-      /* MCQ detection is optional for summaries */
+    /* MCQs found on the page -> embedded verbatim in Variation 1 */
+    let mcqsSection = '';
+    const qs = (result.mcqs ?? []).filter((q) => q.options?.length >= 2).slice(0, 30);
+    if (qs.length) {
+      const list = qs
+        .map((q) => {
+          const opts = q.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
+          return `${q.qid + 1}. ${q.text}\n${opts}`;
+        })
+        .join('\n\n');
+      mcqsSection = `\n\n### MCQs\n${list}`;
     }
 
-    currentTitle = result.title;
-    const sourceMsg = `TITLE: ${result.title}\nURL: ${result.url}\n\nCONTENT:\n${pageText}${mcqBlock}`;
+    currentTitle = result.page.title;
 
-    showStatus($('sum-status'), null, 'Part 1/2 - transcribing original content...');
-    const part1 = await askAI(
-      [
-        { role: 'system', content: VERBATIM_SYSTEM },
-        { role: 'user', content: sourceMsg }
-      ],
-      { temperature: 0.2 }
-    );
+    /* Variation 1 - the ACTUAL scraped string, no AI */
+    const part1 =
+      '## Original Content\n\n' +
+      '```text\n' +
+      pageText +
+      '\n```' +
+      mcqsSection;
 
-    showStatus($('sum-status'), null, 'Part 2/2 - writing study analysis...');
+    const sourceMsg = `TITLE: ${result.page.title}\nURL: ${result.page.url}\n\nCONTENT:\n${pageText}`;
+
+    showStatus($('sum-status'), null, 'AI is writing the study analysis...');
     const part2 = await askAI(
       [
         { role: 'system', content: ANALYSIS_SYSTEM },
@@ -279,15 +262,15 @@ async function summarizePage() {
     );
 
     currentMarkdown =
-      `# ${result.title}\n\n` +
-      `> Source: ${result.url} · Saved ${new Date().toLocaleString()}\n\n` +
+      `# ${currentTitle}\n\n` +
+      `> Source: ${result.page.url} · Saved ${new Date().toLocaleString()}\n\n` +
       `${part1}\n\n---\n\n${part2}\n`;
 
     const preview = $('md-preview');
     preview.textContent = currentMarkdown;
     unhide(preview);
     unhide($('sum-actions'));
-    showStatus($('sum-status'), 'ok', mcqBlock ? 'Done - content + MCQs + analysis ready.' : 'Done - both sections ready.');
+    showStatus($('sum-status'), 'ok', 'Done - raw content + AI analysis ready.');
   } catch (err) {
     showStatus($('sum-status'), 'err', err.message);
   } finally {
@@ -376,7 +359,7 @@ async function autoSolvePage() {
 
   setBusy($('btn-autosolve'), true);
   try {
-    showStatus($('mcq-status'), null, 'Scanning page for MCQs...');
+    showStatus($('mcq-status'), null, 'Scrolling & scanning page for MCQs...');
 
     const tab = await getActiveTab();
     if (!tab?.id) throw new Error('No active tab found.');
@@ -387,10 +370,11 @@ async function autoSolvePage() {
     });
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.__ffcampMcqData ?? null
+      func: (o) => window.__ffcampRun(o),
+      args: [{ scroll: true }]
     });
 
-    const qs = (result?.questions ?? []).filter((q) => q.options?.length >= 2);
+    const qs = (result?.mcqs ?? []).filter((q) => q.options?.length >= 2);
     if (!qs.length) {
       throw new Error(
         'No clickable MCQs detected on this page. Radio buttons, checkboxes, [role=radio] widgets or plain "1. ... A) ..." text are supported - or paste the questions below instead.'
